@@ -1,6 +1,8 @@
 // Global app state backed by localStorage.
 // Seed data comes from data.ts on first load; subsequent loads restore user mutations.
 import { useSyncExternalStore } from 'react';
+import type { User } from './auth';
+import type { Lang } from './i18n';
 import {
   NOTIFICATIONS, PROJECTS, TASKS, TODAY,
   type Notification, type Priority, type Project, type Task, type TaskStatus, type TodayBlock,
@@ -35,10 +37,12 @@ export interface AppState {
   calendarMonthOffset: number;
   execDraft: 'idle' | 'drafting' | 'drafted';
   execNarrative: string | null;
+  lang: Lang;
+  session: User | null;
 }
 
-const KEY = 'krill.store.v1';
-const VERSION = 1;
+const KEY = 'krill.store.v2';
+const VERSION = 2;
 
 function initial(): AppState {
   return {
@@ -61,6 +65,8 @@ function initial(): AppState {
     calendarMonthOffset: 0,
     execDraft: 'idle',
     execNarrative: null,
+    lang: 'en',
+    session: null,
   };
 }
 
@@ -192,10 +198,14 @@ export const actions = {
     set({ execNarrative: txt, execDraft: 'drafted' });
   },
   resetAll() {
-    state = initial();
+    const keepSession = state.session;
+    const keepLang = state.lang;
+    state = { ...initial(), session: keepSession, lang: keepLang };
     persist();
     listeners.forEach(l => l());
   },
+  setLang(lang: Lang) { set({ lang }); },
+  setSession(user: User | null) { set({ session: user }); },
 };
 
 function subscribe(l: () => void) {

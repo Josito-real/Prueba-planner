@@ -43,7 +43,9 @@ export interface Task {
   owner: string;
   status: TaskStatus;
   prio: Priority;
-  due: string;
+  start?: string;   // ISO date (yyyy-mm-dd) — when work should begin
+  due: string;      // target completion date
+  deadline?: string;// hard deadline; overdue if today > deadline
   est: number;
   tags: string[];
 }
@@ -167,18 +169,18 @@ export const PROJECTS: Project[] = [
 
 // tasks
 export const TASKS: Task[] = [
-  { id:'T-301', proj:'PRJ-01', title:'Inverter bank commissioning — string 14–22', owner:'p4', status:'in-progress', prio:'high',  due:'2026-04-22', est:8, tags:['field'] },
-  { id:'T-302', proj:'PRJ-01', title:'Update as-built drawings with revision C',   owner:'p8', status:'todo',        prio:'med',   due:'2026-04-24', est:3, tags:['docs'] },
-  { id:'T-303', proj:'PRJ-02', title:'Retrain forecaster on Q1 2026 residential dataset', owner:'p7', status:'in-progress', prio:'high', due:'2026-04-19', est:5, tags:['ml'] },
-  { id:'T-304', proj:'PRJ-02', title:'Review MAPE regression on cohort B',         owner:'p3', status:'review',      prio:'high',  due:'2026-04-18', est:2, tags:['ml','review'] },
-  { id:'T-305', proj:'PRJ-03', title:'Draft cutover runbook v3',                   owner:'p1', status:'todo',        prio:'high',  due:'2026-04-25', est:6, tags:['ops'] },
-  { id:'T-306', proj:'PRJ-03', title:'Escalate ABB shipment with procurement',     owner:'p5', status:'blocked',     prio:'urgent',due:'2026-04-18', est:1, tags:['blocker'] },
-  { id:'T-307', proj:'PRJ-04', title:'Portal: outage notification copy review',    owner:'p9', status:'review',      prio:'med',   due:'2026-04-20', est:2, tags:['copy'] },
-  { id:'T-308', proj:'PRJ-04', title:'Door-to-door schedule — Zone 3B',            owner:'p2', status:'in-progress', prio:'med',   due:'2026-04-23', est:4, tags:['field'] },
-  { id:'T-309', proj:'PRJ-05', title:'Spec: SCADA event ingestion format',         owner:'p3', status:'in-progress', prio:'med',   due:'2026-04-26', est:3, tags:['spec'] },
-  { id:'T-310', proj:'PRJ-06', title:'PMU mounting plan — pole survey',            owner:'p6', status:'todo',        prio:'low',   due:'2026-05-02', est:4, tags:['field'] },
-  { id:'T-311', proj:'PRJ-01', title:'Arc-flash study sign-off',                   owner:'p1', status:'review',      prio:'high',  due:'2026-04-19', est:2, tags:['safety'] },
-  { id:'T-312', proj:'PRJ-02', title:'Feature flag: shadow-mode toggle',           owner:'p7', status:'done',        prio:'med',   due:'2026-04-15', est:1, tags:['ml'] },
+  { id:'T-301', proj:'PRJ-01', title:'Inverter bank commissioning — string 14–22', owner:'p4', status:'in-progress', prio:'high',  start:'2026-04-15', due:'2026-04-22', deadline:'2026-04-25', est:8, tags:['field'] },
+  { id:'T-302', proj:'PRJ-01', title:'Update as-built drawings with revision C',   owner:'p8', status:'todo',        prio:'med',   start:'2026-04-20', due:'2026-04-24', deadline:'2026-04-30', est:3, tags:['docs'] },
+  { id:'T-303', proj:'PRJ-02', title:'Retrain forecaster on Q1 2026 residential dataset', owner:'p7', status:'in-progress', prio:'high', start:'2026-04-12', due:'2026-04-19', deadline:'2026-04-22', est:5, tags:['ml'] },
+  { id:'T-304', proj:'PRJ-02', title:'Review MAPE regression on cohort B',         owner:'p3', status:'review',      prio:'high',  start:'2026-04-14', due:'2026-04-18', deadline:'2026-04-18', est:2, tags:['ml','review'] },
+  { id:'T-305', proj:'PRJ-03', title:'Draft cutover runbook v3',                   owner:'p1', status:'todo',        prio:'high',  start:'2026-04-16', due:'2026-04-25', deadline:'2026-04-28', est:6, tags:['ops'] },
+  { id:'T-306', proj:'PRJ-03', title:'Escalate ABB shipment with procurement',     owner:'p5', status:'blocked',     prio:'urgent',start:'2026-04-10', due:'2026-04-18', deadline:'2026-04-18', est:1, tags:['blocker'] },
+  { id:'T-307', proj:'PRJ-04', title:'Portal: outage notification copy review',    owner:'p9', status:'review',      prio:'med',   start:'2026-04-14', due:'2026-04-20', deadline:'2026-04-24', est:2, tags:['copy'] },
+  { id:'T-308', proj:'PRJ-04', title:'Door-to-door schedule — Zone 3B',            owner:'p2', status:'in-progress', prio:'med',   start:'2026-04-17', due:'2026-04-23', deadline:'2026-04-30', est:4, tags:['field'] },
+  { id:'T-309', proj:'PRJ-05', title:'Spec: SCADA event ingestion format',         owner:'p3', status:'in-progress', prio:'med',   start:'2026-04-15', due:'2026-04-26', deadline:'2026-05-05', est:3, tags:['spec'] },
+  { id:'T-310', proj:'PRJ-06', title:'PMU mounting plan — pole survey',            owner:'p6', status:'todo',        prio:'low',   start:'2026-04-22', due:'2026-05-02', deadline:'2026-05-10', est:4, tags:['field'] },
+  { id:'T-311', proj:'PRJ-01', title:'Arc-flash study sign-off',                   owner:'p1', status:'review',      prio:'high',  start:'2026-04-12', due:'2026-04-19', deadline:'2026-04-21', est:2, tags:['safety'] },
+  { id:'T-312', proj:'PRJ-02', title:'Feature flag: shadow-mode toggle',           owner:'p7', status:'done',        prio:'med',   start:'2026-04-10', due:'2026-04-15', deadline:'2026-04-18', est:1, tags:['ml'] },
 ];
 
 // cross-project dependencies (source → target). drawn as threads on roadmap.

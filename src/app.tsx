@@ -1,15 +1,19 @@
 // Root app — routing + state glue.
 import { useEffect, useState } from 'react';
 import { ACCENTS, TASKS } from './data';
+import { roleCanAccessView } from './auth';
+import { useAppState } from './store';
 import { CommandPalette, CommandRail, NewProjectModal, NewTaskModal, SettingsModal, TopBar, type CommandAction } from './shell';
 import { MobileShowcase } from './mobile';
 import { TweaksPanel, type Tweaks } from './tweaks';
+import { LoginScreen } from './views/login';
 import { TodayClassic, TodayFocus, TodayStrip } from './views/today';
 import { ProjectView } from './views/project';
 import { Roadmap } from './views/roadmap';
 import { CalendarView, CapacityView, ExecView, InboxView, KanbanView, ListView, TableView } from './views/other';
 
 export function App() {
+  const session = useAppState(s => s.session);
   const [tweaks, setTweaks] = useState<Tweaks>(window.__TWEAK_DEFAULTS as Tweaks);
   const [view, setView] = useState<string>('today');
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -84,6 +88,11 @@ export function App() {
     }
   };
 
+  // Gate the app on a session. No session → login screen.
+  if (!session) {
+    return <LoginScreen/>;
+  }
+
   // If mobile tweak is on, render mobile showcase instead
   if (tweaks.mobile) {
     return (
@@ -94,32 +103,35 @@ export function App() {
     );
   }
 
+  // Block view access for roles that don't have it (e.g. members can't see exec).
+  const effectiveView = roleCanAccessView(session.role, view) ? view : 'today';
+
   let body;
-  if (view === 'today') {
+  if (effectiveView === 'today') {
     const V = tweaks.heroVariant === 'classic' ? TodayClassic :
               tweaks.heroVariant === 'focus' ? TodayFocus : TodayStrip;
     body = <V openProject={openProject} setView={setView}/>;
-  } else if (view === 'project' && activeProject) body = <ProjectView id={activeProject} setView={setView}/>;
-  else if (view === 'roadmap') body = <Roadmap openProject={openProject}/>;
-  else if (view === 'kanban') body = <KanbanView openProject={openProject}/>;
-  else if (view === 'projects' || view === 'list') body = <ListView/>;
-  else if (view === 'table') body = <TableView/>;
-  else if (view === 'calendar') body = <CalendarView/>;
-  else if (view === 'capacity') body = <CapacityView/>;
-  else if (view === 'exec') body = <ExecView/>;
-  else if (view === 'inbox') body = <InboxView/>;
+  } else if (effectiveView === 'project' && activeProject) body = <ProjectView id={activeProject} setView={setView}/>;
+  else if (effectiveView === 'roadmap') body = <Roadmap openProject={openProject}/>;
+  else if (effectiveView === 'kanban') body = <KanbanView openProject={openProject}/>;
+  else if (effectiveView === 'projects' || effectiveView === 'list') body = <ListView/>;
+  else if (effectiveView === 'table') body = <TableView/>;
+  else if (effectiveView === 'calendar') body = <CalendarView/>;
+  else if (effectiveView === 'capacity') body = <CapacityView/>;
+  else if (effectiveView === 'exec') body = <ExecView/>;
+  else if (effectiveView === 'inbox') body = <InboxView/>;
   else body = <TodayStrip openProject={openProject}/>;
 
   return (
     <div style={{paddingLeft:56, minHeight:'100vh', background:'var(--paper)'}}>
       <CommandRail
-        view={view} setView={setView}
+        view={effectiveView} setView={setView}
         openProject={openProject} activeProject={activeProject}
         openPalette={() => setPaletteOpen(true)}
         onLogoClick={() => { setView('today'); setActiveProject(null); }}
         openSettings={() => setSettingsOpen(true)}
       />
-      <TopBar view={view} activeProject={activeProject} onCmd={() => setPaletteOpen(true)} setView={setView} openProject={openProject}/>
+      <TopBar view={effectiveView} activeProject={activeProject} onCmd={() => setPaletteOpen(true)} setView={setView} openProject={openProject}/>
       <main>{body}</main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onAction={handleAction}/>
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)}/>

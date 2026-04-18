@@ -1,22 +1,24 @@
 // App shell: command rail (novel sidebar) + topbar.
 // The rail is a spine of project glyphs + section icons; hover/click expands into a full nav panel.
 import { createElement, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ME, PEOPLE, STATUS_META, type TaskStatus } from './data';
+import { PEOPLE, STATUS_META, type TaskStatus } from './data';
+import { canSeeProject, canSeeTask, roleCanAccessView } from './auth';
+import { useLang, useT } from './i18n';
 import { Icons, KrillMark } from './icons';
-import { Avatar, Btn, Dot, Kbd, HealthOrb, Modal, Pill, Select, TextInput } from './ui';
+import { Avatar, Btn, DateInput, Dot, Kbd, HealthOrb, Modal, Pill, Select, TextInput } from './ui';
 import { actions, useAppState } from './store';
 
 export const NAV_SECTIONS = [
-  { id:'today',    label:'Today',      icon:'today' },
-  { id:'inbox',    label:'Inbox',      icon:'bell' },
-  { id:'roadmap',  label:'Roadmap',    icon:'gantt' },
-  { id:'projects', label:'Projects',   icon:'folder' },
-  { id:'kanban',   label:'Board',      icon:'kanban' },
-  { id:'list',     label:'List',       icon:'list' },
-  { id:'calendar', label:'Calendar',   icon:'cal' },
-  { id:'table',    label:'Spec table', icon:'table' },
-  { id:'capacity', label:'Capacity',   icon:'capacity' },
-  { id:'exec',     label:'Exec status',icon:'star' },
+  { id:'today',    tKey:'nav.today',     icon:'today' },
+  { id:'inbox',    tKey:'nav.inbox',     icon:'bell' },
+  { id:'roadmap',  tKey:'nav.roadmap',   icon:'gantt' },
+  { id:'projects', tKey:'nav.projects',  icon:'folder' },
+  { id:'kanban',   tKey:'nav.kanban',    icon:'kanban' },
+  { id:'list',     tKey:'nav.list',      icon:'list' },
+  { id:'calendar', tKey:'nav.calendar',  icon:'cal' },
+  { id:'table',    tKey:'nav.table',     icon:'table' },
+  { id:'capacity', tKey:'nav.capacity',  icon:'capacity' },
+  { id:'exec',     tKey:'nav.exec',      icon:'star' },
 ];
 
 type CommandRailProps = {
@@ -33,7 +35,12 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
   const open = hover || pinned;
-  const projects = useAppState(s => s.projects);
+  const allProjects = useAppState(s => s.projects);
+  const session = useAppState(s => s.session);
+  const t = useT();
+  // Role-filtered projects: execs see everything, others see only accessible.
+  const projects = session ? allProjects.filter(p => canSeeProject(session, p)) : allProjects;
+  const visibleNav = NAV_SECTIONS.filter(s => !session || roleCanAccessView(session.role, s.id));
 
   return (
     <>
@@ -51,10 +58,10 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
         <button onClick={onLogoClick} style={{background:'transparent',border:0,padding:6,cursor:'pointer',marginBottom:6}} title="Krill Planner">
           <KrillMark size={26}/>
         </button>
-        <RailBtn icon="cmd" label="Command · ⌘K" onClick={openPalette}/>
+        <RailBtn icon="cmd" label="⌘K" onClick={openPalette}/>
         <div style={{height:8}}/>
-        {NAV_SECTIONS.slice(0,3).map(s=>(
-          <RailBtn key={s.id} icon={s.icon} label={s.label} active={view===s.id} onClick={()=>setView(s.id)}/>
+        {visibleNav.slice(0,3).map(s=>(
+          <RailBtn key={s.id} icon={s.icon} label={t(s.tKey)} active={view===s.id} onClick={()=>setView(s.id)}/>
         ))}
         <div style={{height:1, width:24, background:'#18253f', margin:'8px 0'}}/>
         {/* project glyph spine */}
@@ -84,8 +91,8 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
           );
         })}
         <div style={{flex:1}}/>
-        <RailBtn icon="settings" label="Settings" onClick={openSettings}/>
-        <Avatar id={ME} size={26}/>
+        <RailBtn icon="settings" label={t('common.settings')} onClick={openSettings}/>
+        {session && <Avatar id={session.id} size={26}/>}
       </aside>
 
       {/* Expanded panel */}
@@ -113,7 +120,7 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
         </div>
 
         <div style={{padding:'4px 10px'}}>
-          {NAV_SECTIONS.map(s => (
+          {visibleNav.map(s => (
             <button key={s.id} onClick={()=>setView(s.id)}
               style={{
                 width:'100%', textAlign:'left', display:'flex', alignItems:'center', gap:10,
@@ -123,12 +130,12 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
                 fontSize:13, fontFamily:'var(--font-sans)',
               }}>
               {createElement(Icons[s.icon], {size:16})}
-              {s.label}
+              {t(s.tKey)}
             </button>
           ))}
         </div>
 
-        <div style={{padding:'14px 14px 6px', fontSize:11, color:'var(--navy-400)', fontWeight:600, letterSpacing:'.05em', textTransform:'uppercase'}}>Projects</div>
+        <div style={{padding:'14px 14px 6px', fontSize:11, color:'var(--navy-400)', fontWeight:600, letterSpacing:'.05em', textTransform:'uppercase'}}>{t('nav.projects')}</div>
         <div style={{padding:'0 8px 12px', overflowY:'auto'}}>
           {projects.map(p => (
             <button key={p.id} onClick={()=>openProject(p.id)}
@@ -147,13 +154,21 @@ export const CommandRail = ({ view, setView, openProject, activeProject, openPal
           ))}
         </div>
 
-        <div style={{marginTop:'auto', padding:12, borderTop:'1px solid #0c1628', display:'flex', gap:8, alignItems:'center', fontSize:12, color:'var(--navy-300)'}}>
-          <Avatar id={ME} size={26}/>
-          <div>
-            <div style={{color:'white',fontSize:13, fontWeight:500}}>Andrea Salas</div>
-            <div style={{color:'var(--navy-400)', fontSize:11}}>Lead Engineer · Grid</div>
+        {session && (
+          <div style={{marginTop:'auto', padding:12, borderTop:'1px solid #0c1628', display:'flex', gap:8, alignItems:'center', fontSize:12, color:'var(--navy-300)'}}>
+            <Avatar id={session.id} size={26}/>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{color:'white',fontSize:13, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{session.name}</div>
+              <div style={{color:'var(--navy-400)', fontSize:11}}>{t(`role.${session.role}`)} · {session.dept}</div>
+            </div>
+            <button
+              onClick={() => actions.setSession(null)}
+              title={t('common.logout')}
+              style={{background:'transparent', border:0, padding:4, cursor:'pointer', color:'var(--navy-300)'}}>
+              <Icons.arrow size={14} style={{transform:'rotate(180deg)'}}/>
+            </button>
           </div>
-        </div>
+        )}
       </aside>
     </>
   );
@@ -186,9 +201,11 @@ type TopBarProps = {
 export const TopBar = ({ view, activeProject, crumb, onCmd, extra, setView, openProject }: TopBarProps) => {
   const projects = useAppState(s => s.projects);
   const notifications = useAppState(s => s.notifications);
+  const session = useAppState(s => s.session);
+  const t = useT();
   const proj = projects.find(p => p.id === activeProject);
-  const title = view === 'project' && proj ? proj.name :
-    (NAV_SECTIONS.find(s => s.id === view)?.label || view);
+  const navSection = NAV_SECTIONS.find(s => s.id === view);
+  const title = view === 'project' && proj ? proj.name : (navSection ? t(navSection.tKey) : view);
 
   const [newMenu, setNewMenu] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
@@ -222,11 +239,11 @@ export const TopBar = ({ view, activeProject, crumb, onCmd, extra, setView, open
         border:'1px solid var(--line)', borderRadius:8, background:'var(--paper-2)', cursor:'pointer',
         fontSize:12, color:'var(--ink-3)', minWidth:260, justifyContent:'space-between',
       }}>
-        <span style={{display:'flex',alignItems:'center',gap:6}}><Icons.search size={14}/>Search projects, tasks, docs…</span>
+        <span style={{display:'flex',alignItems:'center',gap:6}}><Icons.search size={14}/>{t('topbar.search')}</span>
         <Kbd>⌘K</Kbd>
       </button>
       <div style={{position:'relative'}}>
-        <Btn variant="outline" size="sm" icon={<Icons.plus size={14}/>} onClick={() => setNewMenu(v => !v)}>New</Btn>
+        <Btn variant="outline" size="sm" icon={<Icons.plus size={14}/>} onClick={() => setNewMenu(v => !v)}>{t('topbar.new')}</Btn>
         {newMenu && (
           <>
             <div onClick={() => setNewMenu(false)} style={{position:'fixed', inset:0, zIndex:29}}/>
@@ -235,8 +252,10 @@ export const TopBar = ({ view, activeProject, crumb, onCmd, extra, setView, open
               border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 8px 24px -8px rgba(6,14,31,.2)',
               zIndex:30, padding:4,
             }}>
-              <MenuItem icon={<Icons.check size={14}/>} label="New task" onClick={() => { setNewMenu(false); setNewTaskOpen(true); }}/>
-              <MenuItem icon={<Icons.folder size={14}/>} label="New project" onClick={() => { setNewMenu(false); setNewProjOpen(true); }}/>
+              <MenuItem icon={<Icons.check size={14}/>} label={t('topbar.new.task')} onClick={() => { setNewMenu(false); setNewTaskOpen(true); }}/>
+              {session && session.role !== 'member' && (
+                <MenuItem icon={<Icons.folder size={14}/>} label={t('topbar.new.project')} onClick={() => { setNewMenu(false); setNewProjOpen(true); }}/>
+              )}
             </div>
           </>
         )}
@@ -258,10 +277,10 @@ export const TopBar = ({ view, activeProject, crumb, onCmd, extra, setView, open
               boxShadow:'0 12px 32px -8px rgba(6,14,31,.25)', zIndex:30,
             }}>
               <div style={{padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid var(--line)'}}>
-                <span style={{fontSize:13, fontWeight:600}}>Notifications</span>
-                <button onClick={() => { actions.markAllNotificationsRead(); }} style={{background:'transparent', border:0, cursor:'pointer', fontSize:11, color:'var(--accent)'}}>Mark all read</button>
+                <span style={{fontSize:13, fontWeight:600}}>{t('topbar.notifications')}</span>
+                <button onClick={() => { actions.markAllNotificationsRead(); }} style={{background:'transparent', border:0, cursor:'pointer', fontSize:11, color:'var(--accent)'}}>{t('topbar.markAllRead')}</button>
               </div>
-              {notifications.length === 0 && <div style={{padding:20, textAlign:'center', fontSize:12, color:'var(--ink-4)'}}>You're all caught up.</div>}
+              {notifications.length === 0 && <div style={{padding:20, textAlign:'center', fontSize:12, color:'var(--ink-4)'}}>{t('inbox.empty')}</div>}
               {notifications.map(n => {
                 const p = n.who === 'sys' ? null : PEOPLE.find(x => x.id === n.who);
                 return (
@@ -275,12 +294,12 @@ export const TopBar = ({ view, activeProject, crumb, onCmd, extra, setView, open
                   </div>
                 );
               })}
-              <button onClick={() => { setBellOpen(false); setView('inbox'); }} style={{width:'100%', padding:'10px 14px', background:'var(--paper-2)', border:0, cursor:'pointer', fontSize:12, color:'var(--accent)'}}>Open inbox →</button>
+              <button onClick={() => { setBellOpen(false); setView('inbox'); }} style={{width:'100%', padding:'10px 14px', background:'var(--paper-2)', border:0, cursor:'pointer', fontSize:12, color:'var(--accent)'}}>{t('topbar.openInbox')}</button>
             </div>
           </>
         )}
       </div>
-      <Avatar id={ME} size={28}/>
+      {session && <Avatar id={session.id} size={28}/>}
 
       <NewTaskModal open={newTaskOpen} onClose={() => setNewTaskOpen(false)} defaultProject={activeProject}/>
       <NewProjectModal open={newProjOpen} onClose={() => setNewProjOpen(false)} onCreated={id => openProject(id)}/>
@@ -301,48 +320,70 @@ export const NewTaskModal = ({ open, onClose, defaultProject, defaultStatus, onC
   open: boolean; onClose: () => void; defaultProject?: string | null;
   defaultStatus?: TaskStatus; onCreated?: (id: string) => void;
 }) => {
-  const projects = useAppState(s => s.projects);
+  const allProjects = useAppState(s => s.projects);
+  const session = useAppState(s => s.session);
+  const t = useT();
+  // Members can only create tasks in projects they can see.
+  const projects = session ? allProjects.filter(p => canSeeProject(session, p)) : allProjects;
   const [title, setTitle] = useState('');
   const [proj, setProj] = useState<string>(defaultProject || projects[0]?.id || '');
   const [prio, setPrio] = useState<'urgent' | 'high' | 'med' | 'low'>('med');
-  const [owner, setOwner] = useState<string>('p1');
+  const [owner, setOwner] = useState<string>(session?.id || 'p1');
+  const [start, setStart] = useState<string>('');
+  const [due, setDue] = useState<string>('');
+  const [deadline, setDeadline] = useState<string>('');
   useEffect(() => {
     if (open) {
       setTitle('');
       setProj(defaultProject || projects[0]?.id || '');
-      setPrio('med'); setOwner('p1');
+      setPrio('med');
+      setOwner(session?.id || 'p1');
+      const today = new Date().toISOString().slice(0, 10);
+      setStart(today);
+      setDue('');
+      setDeadline('');
     }
-  }, [open, defaultProject, projects]);
+  }, [open, defaultProject, projects, session]);
   const submit = () => {
     if (!title.trim() || !proj) return;
-    const id = actions.addTask({ title: title.trim(), proj, prio, owner, status: defaultStatus });
+    const id = actions.addTask({
+      title: title.trim(), proj, prio, owner, status: defaultStatus,
+      start: start || undefined,
+      due: due || new Date().toISOString().slice(0, 10),
+      deadline: deadline || undefined,
+    });
     onClose();
     onCreated?.(id);
   };
   return (
-    <Modal open={open} onClose={onClose} title="New task" footer={
+    <Modal open={open} onClose={onClose} title={t('newTask.title')} footer={
       <>
-        <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-        <Btn variant="accent" size="sm" onClick={submit}>Create task</Btn>
+        <Btn variant="ghost" size="sm" onClick={onClose}>{t('common.cancel')}</Btn>
+        <Btn variant="accent" size="sm" onClick={submit}>{t('newTask.create')}</Btn>
       </>
     }>
       <div style={{display:'flex', flexDirection:'column', gap:12}}>
-        <Field label="Title"><TextInput value={title} onChange={setTitle} placeholder="What needs doing?" autoFocus/></Field>
-        <Field label="Project">
+        <Field label={t('common.title')}><TextInput value={title} onChange={setTitle} placeholder={t('newTask.titlePh')} autoFocus/></Field>
+        <Field label={t('common.project')}>
           <Select value={proj} onChange={setProj} options={projects.map(p => ({ value: p.id, label: `${p.code} · ${p.name}` }))}/>
         </Field>
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
-          <Field label="Priority">
+          <Field label={t('common.priority')}>
             <Select value={prio} onChange={v => setPrio(v as typeof prio)} options={[
-              { value:'urgent', label:'Urgent' },
-              { value:'high', label:'High' },
-              { value:'med', label:'Med' },
-              { value:'low', label:'Low' },
+              { value:'urgent', label: t('prio.urgent') },
+              { value:'high',   label: t('prio.high') },
+              { value:'med',    label: t('prio.med') },
+              { value:'low',    label: t('prio.low') },
             ]}/>
           </Field>
-          <Field label="Owner">
+          <Field label={t('common.owner')}>
             <Select value={owner} onChange={setOwner} options={PEOPLE.map(p => ({ value: p.id, label: p.name }))}/>
           </Field>
+        </div>
+        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12}}>
+          <Field label={t('common.start')}><DateInput value={start} onChange={setStart}/></Field>
+          <Field label={t('common.due')}><DateInput value={due} onChange={setDue}/></Field>
+          <Field label={t('common.deadline')}><DateInput value={deadline} onChange={setDeadline}/></Field>
         </div>
       </div>
     </Modal>
@@ -352,6 +393,7 @@ export const NewTaskModal = ({ open, onClose, defaultProject, defaultStatus, onC
 export const NewProjectModal = ({ open, onClose, onCreated }: {
   open: boolean; onClose: () => void; onCreated?: (id: string) => void;
 }) => {
+  const t = useT();
   const [name, setName] = useState('');
   const [dept, setDept] = useState('Grid');
   useEffect(() => { if (open) { setName(''); setDept('Grid'); } }, [open]);
@@ -362,15 +404,15 @@ export const NewProjectModal = ({ open, onClose, onCreated }: {
     onCreated?.(id);
   };
   return (
-    <Modal open={open} onClose={onClose} title="New project" footer={
+    <Modal open={open} onClose={onClose} title={t('newProject.title')} footer={
       <>
-        <Btn variant="ghost" size="sm" onClick={onClose}>Cancel</Btn>
-        <Btn variant="accent" size="sm" onClick={submit}>Create project</Btn>
+        <Btn variant="ghost" size="sm" onClick={onClose}>{t('common.cancel')}</Btn>
+        <Btn variant="accent" size="sm" onClick={submit}>{t('newProject.create')}</Btn>
       </>
     }>
       <div style={{display:'flex', flexDirection:'column', gap:12}}>
-        <Field label="Name"><TextInput value={name} onChange={setName} placeholder="Project name" autoFocus/></Field>
-        <Field label="Department">
+        <Field label={t('common.title')}><TextInput value={name} onChange={setName} placeholder={t('newProject.namePh')} autoFocus/></Field>
+        <Field label={t('newProject.dept')}>
           <Select value={dept} onChange={setDept} options={['Grid','Solar','Residential','Harvey IA','Ops'].map(d => ({ value: d, label: d }))}/>
         </Field>
       </div>
@@ -382,22 +424,40 @@ export const SettingsModal = ({ open, onClose, tweaksHook }: {
   open: boolean; onClose: () => void; tweaksHook?: ReactNode;
 }) => {
   const settings = useAppState(s => s.settings);
+  const session = useAppState(s => s.session);
+  const lang = useLang();
+  const t = useT();
   const confirmReset = () => {
-    if (window.confirm('Reset all local data (tasks, projects, filters, notifications)?')) {
+    if (window.confirm(t('settings.resetConfirm'))) {
       actions.resetAll();
       onClose();
     }
   };
   return (
-    <Modal open={open} onClose={onClose} title="Settings" width={520} footer={<Btn variant="accent" size="sm" onClick={onClose}>Done</Btn>}>
+    <Modal open={open} onClose={onClose} title={t('settings.title')} width={520} footer={<Btn variant="accent" size="sm" onClick={onClose}>{t('common.close')}</Btn>}>
       <div style={{display:'flex', flexDirection:'column', gap:14}}>
-        <Toggle label="Notifications" checked={settings.notifications} onChange={v => actions.updateSettings({ notifications: v })}/>
-        <Toggle label="Daily digest email" checked={settings.dailyDigest} onChange={v => actions.updateSettings({ dailyDigest: v })}/>
-        <Toggle label="Protect focus blocks" checked={settings.protectFocus} onChange={v => actions.updateSettings({ protectFocus: v })}/>
+        <Field label={t('settings.language')}>
+          <Select value={lang} onChange={v => actions.setLang(v === 'es' ? 'es' : 'en')} options={[
+            { value:'en', label:'English' },
+            { value:'es', label:'Español' },
+          ]}/>
+        </Field>
+        <Toggle label={t('settings.notifications')} checked={settings.notifications} onChange={v => actions.updateSettings({ notifications: v })}/>
+        <Toggle label={t('settings.dailyDigest')} checked={settings.dailyDigest} onChange={v => actions.updateSettings({ dailyDigest: v })}/>
+        <Toggle label={t('settings.protectFocus')} checked={settings.protectFocus} onChange={v => actions.updateSettings({ protectFocus: v })}/>
         {tweaksHook && <div style={{marginTop:4, paddingTop:12, borderTop:'1px solid var(--line-2)'}}>{tweaksHook}</div>}
+        {session && (
+          <div style={{marginTop:4, paddingTop:12, borderTop:'1px solid var(--line-2)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10}}>
+            <div style={{fontSize:12, color:'var(--ink-3)'}}>
+              <div><b style={{color:'var(--ink)'}}>{session.name}</b></div>
+              <div>{t(`role.${session.role}`)} · {session.dept}</div>
+            </div>
+            <Btn variant="outline" size="sm" onClick={() => { actions.setSession(null); onClose(); }}>{t('common.logout')}</Btn>
+          </div>
+        )}
         <div style={{marginTop:4, paddingTop:12, borderTop:'1px solid var(--line-2)'}}>
-          <div style={{fontSize:12, color:'var(--ink-3)', marginBottom:8}}>Danger zone</div>
-          <Btn variant="outline" size="sm" onClick={confirmReset}>Reset all local data</Btn>
+          <div style={{fontSize:12, color:'var(--ink-3)', marginBottom:8}}>{lang === 'es' ? 'Zona de riesgo' : 'Danger zone'}</div>
+          <Btn variant="outline" size="sm" onClick={confirmReset}>{t('settings.resetData')}</Btn>
         </div>
       </div>
     </Modal>
@@ -436,18 +496,27 @@ export type CommandAction =
 export const CommandPalette = ({ open, onClose, onAction }: { open: boolean; onClose: () => void; onAction: (i: CommandAction) => void }) => {
   const [q, setQ] = useState('');
   const ref = useRef<HTMLInputElement | null>(null);
-  const projects = useAppState(s => s.projects);
+  const allProjects = useAppState(s => s.projects);
   const tasks = useAppState(s => s.tasks);
+  const session = useAppState(s => s.session);
+  const t = useT();
+  const lang = useLang();
+  const projects = session ? allProjects.filter(p => canSeeProject(session, p)) : allProjects;
+  const visibleNav = NAV_SECTIONS.filter(s => !session || roleCanAccessView(session.role, s.id));
+  const visibleTasks = session
+    ? tasks.filter(tk => canSeeTask(session, tk, allProjects))
+    : tasks;
   useEffect(() => { if (open) setTimeout(() => ref.current?.focus(), 30); setQ(''); }, [open]);
   if (!open) return null;
 
+  const goTo = lang === 'es' ? 'Ir a' : 'Go to';
   const items: CommandAction[] = [
-    ...NAV_SECTIONS.map(s => ({ kind:'view' as const, id:s.id, label:`Go to ${s.label}`, icon:s.icon, hint:'view' })),
+    ...visibleNav.map(s => ({ kind:'view' as const, id:s.id, label:`${goTo} ${t(s.tKey)}`, icon:s.icon, hint:'view' })),
     ...projects.map(p => ({ kind:'project' as const, id:p.id, label:p.name, sub:p.code, icon:'folder', hint:'project' })),
-    ...tasks.slice(0,8).map(t => ({ kind:'task' as const, id:t.id, label:t.title, sub:t.id, icon:'check', hint:'task' })),
-    { kind:'action', id:'new-project', label:'Create new project…', icon:'plus', hint:'action' },
-    { kind:'action', id:'new-task',    label:'Create new task…',    icon:'plus', hint:'action' },
-    { kind:'action', id:'status-exec', label:'Draft weekly exec status', icon:'star', hint:'action' },
+    ...visibleTasks.slice(0,8).map(tk => ({ kind:'task' as const, id:tk.id, label:tk.title, sub:tk.id, icon:'check', hint:'task' })),
+    ...(session && session.role !== 'member' ? [{ kind:'action' as const, id:'new-project', label:lang==='es'?'Crear nuevo proyecto…':'Create new project…', icon:'plus', hint:'action' }] : []),
+    { kind:'action', id:'new-task',    label: lang==='es'?'Crear nueva tarea…':'Create new task…',    icon:'plus', hint:'action' },
+    ...(session && session.role !== 'member' ? [{ kind:'action' as const, id:'status-exec', label: lang==='es'?'Borrador de estado semanal':'Draft weekly exec status', icon:'star', hint:'action' }] : []),
   ];
   const filtered = q ? items.filter(i => (i.label + ' ' + ((i as { sub?: string }).sub || '')).toLowerCase().includes(q.toLowerCase())) : items;
 
@@ -463,7 +532,7 @@ export const CommandPalette = ({ open, onClose, onAction }: { open: boolean; onC
       }}>
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'14px 16px',borderBottom:'1px solid var(--line)'}}>
           <Icons.search size={16}/>
-          <input ref={ref} value={q} onChange={e => setQ(e.target.value)} placeholder="Type a command, project, or task…"
+          <input ref={ref} value={q} onChange={e => setQ(e.target.value)} placeholder={lang==='es'?'Escribe un comando, proyecto o tarea…':'Type a command, project, or task…'}
             style={{flex:1,border:0,outline:'none',fontSize:15,background:'transparent',color:'var(--ink)'}}/>
           <Kbd>esc</Kbd>
         </div>

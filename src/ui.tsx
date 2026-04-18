@@ -113,16 +113,20 @@ type BtnProps = {
   icon?: ReactNode;
   style?: CSSProperties;
   title?: string;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
 };
 
-export const Btn = ({ children, onClick, variant = 'ghost', size = 'md', icon, style, title }: BtnProps) => {
+export const Btn = ({ children, onClick, variant = 'ghost', size = 'md', icon, style, title, disabled, type = 'button' }: BtnProps) => {
   const base: CSSProperties = {
     display:'inline-flex', alignItems:'center', gap:8,
     height: size === 'sm' ? 26 : 32, padding: size === 'sm' ? '0 10px' : '0 12px',
     borderRadius:8, border:'1px solid transparent',
     fontSize: size === 'sm' ? 12 : 13, fontWeight:500,
-    cursor:'pointer', background:'transparent', color:'var(--ink-2)',
-    transition:'background .12s, border-color .12s, color .12s',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    background:'transparent', color:'var(--ink-2)',
+    opacity: disabled ? 0.55 : 1,
+    transition:'background .12s, border-color .12s, color .12s, opacity .12s',
   };
   const variants: Record<string, CSSProperties> = {
     ghost:    { },
@@ -132,8 +136,8 @@ export const Btn = ({ children, onClick, variant = 'ghost', size = 'md', icon, s
     subtle:   { background:'var(--paper-2)', color:'var(--ink-2)' },
   };
   return (
-    <button onClick={onClick} title={title} style={{...base, ...variants[variant], ...style}}
-      onMouseEnter={e => { if (variant === 'ghost') e.currentTarget.style.background = 'var(--paper-2)'; }}
+    <button type={type} onClick={onClick} title={title} disabled={disabled} style={{...base, ...variants[variant], ...style}}
+      onMouseEnter={e => { if (!disabled && variant === 'ghost') e.currentTarget.style.background = 'var(--paper-2)'; }}
       onMouseLeave={e => { if (variant === 'ghost') e.currentTarget.style.background = 'transparent'; }}>
       {icon}{children}
     </button>
@@ -207,6 +211,21 @@ export const TextInput = ({ value, onChange, placeholder, autoFocus }: {
     placeholder={placeholder}
     style={{
       width:'100%', padding:'9px 12px', border:'1px solid var(--line)', borderRadius:8,
+      fontSize:13, fontFamily:'var(--font-sans)', background:'var(--paper)', color:'var(--ink)',
+      outline:'none',
+    }}
+    onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+    onBlur={e => { e.currentTarget.style.borderColor = 'var(--line)'; }}
+  />
+);
+
+export const DateInput = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+  <input
+    type="date"
+    value={value || ''}
+    onChange={e => onChange(e.target.value)}
+    style={{
+      height:32, padding:'0 10px', border:'1px solid var(--line)', borderRadius:8,
       fontSize:13, fontFamily:'var(--font-sans)', background:'var(--paper)', color:'var(--ink)',
       outline:'none',
     }}

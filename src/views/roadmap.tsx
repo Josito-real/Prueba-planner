@@ -1,17 +1,26 @@
 // Roadmap — quarters with swimlanes + novel capacity heat columns + cross-project dep threads.
 import { Fragment, useState } from 'react';
 import { DEPS, PEOPLE, QUARTERS } from '../data';
+import { canSeeProject } from '../auth';
+import { useLang, useT } from '../i18n';
 import { Icons } from '../icons';
 import { actions, useAppState, type Scale } from '../store';
 import { Btn, Card, DepThread, HealthOrb } from '../ui';
+
+const MONTHS_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const MONTHS_EN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) => {
   const allProjects = useAppState(s => s.projects);
   const scale = useAppState(s => s.roadmapScale);
   const hiddenDepts = useAppState(s => s.roadmapDepts);
   const hiddenOwners = useAppState(s => s.roadmapOwners);
+  const session = useAppState(s => s.session);
+  const t = useT();
+  const lang = useLang();
 
-  const projects = allProjects.filter(p => !hiddenDepts.includes(p.dept) && !hiddenOwners.includes(p.owner));
+  const accessible = session ? allProjects.filter(p => canSeeProject(session, p)) : allProjects;
+  const projects = accessible.filter(p => !hiddenDepts.includes(p.dept) && !hiddenOwners.includes(p.owner));
 
   // Scale controls visible range: year = 2026 full, quarter = Q2 only (Apr–Jun), month = April only
   const range = scaleRange(scale);
@@ -39,25 +48,25 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
     <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
       <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:14}}>
         <div>
-          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>2026 · company</div>
-          <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:28, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Roadmap</h1>
+          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>2026 · {lang==='es'?'compañía':'company'}</div>
+          <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:28, letterSpacing:'-0.01em', margin:'4px 0 0'}}>{t('nav.roadmap')}</h1>
         </div>
         <div style={{display:'flex', gap:8}}>
           {(['year','quarter','month'] as Scale[]).map(s => (
             <Btn key={s} size="sm" variant={scale === s ? 'subtle' : 'ghost'} onClick={() => actions.setRoadmapScale(s)}>
-              {s[0].toUpperCase() + s.slice(1)}
+              {t(`roadmap.${s}`)}
             </Btn>
           ))}
           <span style={{width:12}}/>
           <FilterPopover
-            label="Dept"
+            label={t('roadmap.dept')}
             icon={<Icons.filter size={13}/>}
             options={['Grid','Solar','Residential','Harvey IA','Ops'].map(d => ({ value: d, label: d }))}
             hidden={hiddenDepts}
             toggle={actions.toggleRoadmapDept}
           />
           <FilterPopover
-            label="Owner"
+            label={t('roadmap.owners')}
             icon={<Icons.team size={13}/>}
             options={PEOPLE.map(p => ({ value: p.id, label: p.name }))}
             hidden={hiddenOwners}
@@ -69,7 +78,7 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
       <Card pad={0}>
         <div style={{display:'flex'}}>
           <div style={{width:200, borderRight:'1px solid var(--line)', flex:'none'}}>
-            <div style={{height:headerH, borderBottom:'1px solid var(--line)', padding:'0 14px', display:'flex', alignItems:'center', fontSize:11, color:'var(--ink-3)', letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600}}>Project</div>
+            <div style={{height:headerH, borderBottom:'1px solid var(--line)', padding:'0 14px', display:'flex', alignItems:'center', fontSize:11, color:'var(--ink-3)', letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600}}>{t('common.project')}</div>
             {projects.map((p, i) => (
               <div key={p.id} onClick={() => openProject(p.id)} style={{
                 height:laneH, borderBottom: i < projects.length - 1 ? '1px solid var(--line-2)' : '0',
@@ -157,17 +166,17 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
       {/* Capacity heat columns — novel */}
       <div style={{marginTop:20}}>
         <div style={{display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom:12}}>
-          <div style={{fontSize:12, fontWeight:600, color:'var(--ink-2)', letterSpacing:'.02em', textTransform:'uppercase'}}>Capacity heat · by month</div>
-          <span style={{fontSize:11, color:'var(--ink-4)'}}>warmer = more overload</span>
+          <div style={{fontSize:12, fontWeight:600, color:'var(--ink-2)', letterSpacing:'.02em', textTransform:'uppercase'}}>{lang==='es'?'Capacidad · por mes':'Capacity heat · by month'}</div>
+          <span style={{fontSize:11, color:'var(--ink-4)'}}>{lang==='es'?'más cálido = más sobrecarga':'warmer = more overload'}</span>
         </div>
         <CapacityHeatBand/>
       </div>
 
       {/* Dep legend */}
       <div style={{display:'flex', gap:16, marginTop:14, fontSize:11, color:'var(--ink-3)'}}>
-        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'var(--risk)',display:'inline-block',borderTop:'1px dashed var(--risk)'}}/> blocks</span>
-        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'var(--accent)'}}/> feeds</span>
-        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'#7a52c0'}}/> enables</span>
+        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'var(--risk)',display:'inline-block',borderTop:'1px dashed var(--risk)'}}/> {lang==='es'?'bloquea':'blocks'}</span>
+        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'var(--accent)'}}/> {lang==='es'?'alimenta':'feeds'}</span>
+        <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'#7a52c0'}}/> {lang==='es'?'habilita':'enables'}</span>
       </div>
     </div>
   );
@@ -223,14 +232,15 @@ const FilterPopover = ({ label, icon, options, hidden, toggle }: {
 };
 
 export const CapacityHeatBand = () => {
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lang = useLang();
+  const months = lang === 'es' ? MONTHS_ES : MONTHS_EN;
   const depts = ['Grid','Solar','Residential','Harvey IA','Ops'];
   // synth data
   const rng = (i: number, j: number) => ((i*7 + j*13 + 3) % 11) / 10;
   return (
     <Card pad={0}>
       <div style={{display:'grid', gridTemplateColumns:'140px repeat(12, 1fr)'}}>
-        <div style={{padding:'10px 14px', fontSize:11, color:'var(--ink-3)', borderBottom:'1px solid var(--line)', fontWeight:600, letterSpacing:'.04em', textTransform:'uppercase'}}>Dept / month</div>
+        <div style={{padding:'10px 14px', fontSize:11, color:'var(--ink-3)', borderBottom:'1px solid var(--line)', fontWeight:600, letterSpacing:'.04em', textTransform:'uppercase'}}>{lang==='es'?'Depto / mes':'Dept / month'}</div>
         {months.map((m, i) => (
           <div key={m} style={{padding:'10px 0', fontSize:11, color:'var(--ink-4)', borderBottom:'1px solid var(--line)', textAlign:'center', fontFamily:'var(--font-mono)', background: i === 3 ? 'var(--paper-2)' : 'transparent'}}>{m}</div>
         ))}
