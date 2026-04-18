@@ -1,7 +1,7 @@
 // Root app — routing + state glue.
 import { useEffect, useState } from 'react';
 import { ACCENTS, TASKS } from './data';
-import { CommandPalette, CommandRail, TopBar, type CommandAction } from './shell';
+import { CommandPalette, CommandRail, NewProjectModal, NewTaskModal, SettingsModal, TopBar, type CommandAction } from './shell';
 import { MobileShowcase } from './mobile';
 import { TweaksPanel, type Tweaks } from './tweaks';
 import { TodayClassic, TodayFocus, TodayStrip } from './views/today';
@@ -15,6 +15,9 @@ export function App() {
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newProjOpen, setNewProjOpen] = useState(false);
 
   // Edit-mode handshake with host
   useEffect(() => {
@@ -76,6 +79,8 @@ export function App() {
       if (t) openProject(t.proj);
     } else if (i.kind === 'action') {
       if (i.id === 'status-exec') setView('exec');
+      else if (i.id === 'new-task') setNewTaskOpen(true);
+      else if (i.id === 'new-project') setNewProjOpen(true);
     }
   };
 
@@ -93,7 +98,7 @@ export function App() {
   if (view === 'today') {
     const V = tweaks.heroVariant === 'classic' ? TodayClassic :
               tweaks.heroVariant === 'focus' ? TodayFocus : TodayStrip;
-    body = <V openProject={openProject}/>;
+    body = <V openProject={openProject} setView={setView}/>;
   } else if (view === 'project' && activeProject) body = <ProjectView id={activeProject} setView={setView}/>;
   else if (view === 'roadmap') body = <Roadmap openProject={openProject}/>;
   else if (view === 'kanban') body = <KanbanView openProject={openProject}/>;
@@ -112,10 +117,14 @@ export function App() {
         openProject={openProject} activeProject={activeProject}
         openPalette={() => setPaletteOpen(true)}
         onLogoClick={() => { setView('today'); setActiveProject(null); }}
+        openSettings={() => setSettingsOpen(true)}
       />
-      <TopBar view={view} activeProject={activeProject} onCmd={() => setPaletteOpen(true)}/>
+      <TopBar view={view} activeProject={activeProject} onCmd={() => setPaletteOpen(true)} setView={setView} openProject={openProject}/>
       <main>{body}</main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onAction={handleAction}/>
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)}/>
+      <NewTaskModal open={newTaskOpen} onClose={() => setNewTaskOpen(false)} defaultProject={activeProject}/>
+      <NewProjectModal open={newProjOpen} onClose={() => setNewProjOpen(false)} onCreated={id => openProject(id)}/>
       <TweaksPanel active={editMode} tweaks={tweaks} setTweaks={setTweaks}/>
     </div>
   );

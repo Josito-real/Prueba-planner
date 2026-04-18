@@ -1,12 +1,31 @@
 // Remaining views: Kanban, List, Table, Calendar, Capacity, Exec, Inbox.
-import {
-  NOTIFICATIONS, PEOPLE, PRIO_META, PROJECTS, TASKS, TASK_STATUS_META,
-} from '../data';
+import { useState } from 'react';
+import { PEOPLE, PRIO_META, PROJECTS, TASK_STATUS_META, type Priority, type Task, type TaskStatus } from '../data';
 import { Icons } from '../icons';
+import { NewTaskModal } from '../shell';
+import { actions, useAppState, type GroupBy } from '../store';
 import { Avatar, AvatarStack, Btn, Card, Dot, HealthOrb, Pill, ProgressBar, StatusPill } from '../ui';
 
 export const KanbanView = ({ openProject }: { openProject: (id: string) => void }) => {
-  const cols = ['todo','in-progress','review','blocked','done'] as const;
+  const tasks = useAppState(s => s.tasks);
+  const filterPrio = useAppState(s => s.kanbanFilter.prio);
+  const groupBy = useAppState(s => s.kanbanGroupBy);
+  const [newOpen, setNewOpen] = useState(false);
+  const [newDefaultStatus, setNewDefaultStatus] = useState<TaskStatus>('todo');
+
+  const openNew = (st?: TaskStatus) => { setNewDefaultStatus(st || 'todo'); setNewOpen(true); };
+  const filtered = filterPrio === 'all' ? tasks : tasks.filter(t => t.prio === filterPrio);
+
+  const nextGroup: Record<GroupBy, GroupBy> = {
+    status: 'priority',
+    priority: 'project',
+    project: 'status',
+    owner: 'status',
+  };
+  const groupLabel = groupBy === 'status' ? 'Status' : groupBy === 'priority' ? 'Priority' : 'Project';
+
+  const cols = kanbanColumns(filtered, groupBy);
+
   return (
     <div style={{padding:'20px 28px'}}>
       <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:14}}>
@@ -15,27 +34,30 @@ export const KanbanView = ({ openProject }: { openProject: (id: string) => void 
           <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:26, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Board</h1>
         </div>
         <div style={{display:'flex', gap:8}}>
-          <Btn size="sm" variant="outline" icon={<Icons.filter size={13}/>}>Filter</Btn>
-          <Btn size="sm" variant="outline">Group: Status</Btn>
-          <Btn size="sm" variant="accent" icon={<Icons.plus size={13}/>}>New task</Btn>
+          <KanbanFilterDropdown value={filterPrio} onChange={actions.setKanbanFilter}/>
+          <Btn size="sm" variant="outline" onClick={() => actions.setKanbanGroupBy(nextGroup[groupBy])}>Group: {groupLabel}</Btn>
+          <Btn size="sm" variant="accent" icon={<Icons.plus size={13}/>} onClick={() => openNew()}>New task</Btn>
         </div>
       </div>
-      <div style={{display:'grid', gridTemplateColumns:`repeat(${cols.length}, 1fr)`, gap:12}}>
-        {cols.map(st => {
-          const meta = TASK_STATUS_META[st];
-          const items = TASKS.filter(t => t.status === st);
-          return (
-            <div key={st} style={{background:'var(--paper-2)', borderRadius:'var(--radius)', padding:10, minHeight:500}}>
+      <div style={{display:'grid', gridTemplateColumns:`repeat(${cols.length || 1}, 1fr)`, gap:12}}>
+        {cols.map(col => (
+            <div key={col.key} style={{background:'var(--paper-2)', borderRadius:'var(--radius)', padding:10, minHeight:500}}>
               <div style={{display:'flex', alignItems:'center', gap:8, padding:'4px 6px 10px'}}>
-                <Dot c={meta.c}/>
-                <span style={{fontSize:12, fontWeight:600}}>{meta.label}</span>
-                <span style={{fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)'}}>{items.length}</span>
+                <Dot c={col.color}/>
+                <span style={{fontSize:12, fontWeight:600}}>{col.label}</span>
+                <span style={{fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)'}}>{col.items.length}</span>
                 <span style={{flex:1}}/>
-                <button style={{background:'transparent',border:0,cursor:'pointer',color:'var(--ink-4)',padding:2}}><Icons.plus size={14}/></button>
+                <button
+                  onClick={() => openNew(groupBy === 'status' ? (col.key as TaskStatus) : 'todo')}
+                  title="Add task to this column"
+                  style={{background:'transparent',border:0,cursor:'pointer',color:'var(--ink-4)',padding:2}}>
+                  <Icons.plus size={14}/>
+                </button>
               </div>
               <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                {items.map(t => {
-                  const proj = PROJECTS.find(p => p.id === t.proj)!;
+                {col.items.map(t => {
+                  const proj = PROJECTS.find(p => p.id === t.proj);
+                  if (!proj) return null;
                   return (
                     <Card key={t.id} pad={12} onClick={() => openProject(t.proj)}>
                       <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
@@ -59,14 +81,82 @@ export const KanbanView = ({ openProject }: { openProject: (id: string) => void 
                 })}
               </div>
             </div>
-          );
-        })}
+        ))}
       </div>
+      <NewTaskModal
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        defaultStatus={newDefaultStatus}
+      />
     </div>
   );
 };
 
-export const ListView = () => (
+function kanbanColumns(tasks: Task[], by: GroupBy): { key: string; label: string; color: string; items: Task[] }[] {
+  if (by === 'priority') {
+    const order: Priority[] = ['urgent', 'high', 'med', 'low'];
+    return order.map(prio => ({
+      key: prio, label: PRIO_META[prio].label, color: PRIO_META[prio].c,
+      items: tasks.filter(t => t.prio === prio),
+    }));
+  }
+  if (by === 'project') {
+    const ids = Array.from(new Set(tasks.map(t => t.proj)));
+    return ids.map(id => {
+      const p = PROJECTS.find(x => x.id === id);
+      return {
+        key: id,
+        label: p ? p.code : id,
+        color: p ? `oklch(0.55 0.14 ${p.hue})` : 'var(--ink-3)',
+        items: tasks.filter(t => t.proj === id),
+      };
+    });
+  }
+  if (by === 'owner') {
+    const ids = Array.from(new Set(tasks.map(t => t.owner)));
+    return ids.map(id => {
+      const p = PEOPLE.find(x => x.id === id);
+      return {
+        key: id,
+        label: p ? p.name : id,
+        color: 'var(--ink-3)',
+        items: tasks.filter(t => t.owner === id),
+      };
+    });
+  }
+  const statuses: TaskStatus[] = ['todo', 'in-progress', 'review', 'blocked', 'done'];
+  return statuses.map(st => {
+    const m = TASK_STATUS_META[st];
+    return { key: st, label: m.label, color: m.c, items: tasks.filter(t => t.status === st) };
+  });
+}
+
+const KanbanFilterDropdown = ({ value, onChange }: { value: Priority | 'all'; onChange: (v: Priority | 'all') => void }) => {
+  const [open, setOpen] = useState(false);
+  const label = value === 'all' ? 'Filter' : `Priority: ${PRIO_META[value].label}`;
+  return (
+    <div style={{position:'relative'}}>
+      <Btn size="sm" variant={value === 'all' ? 'outline' : 'subtle'} icon={<Icons.filter size={13}/>} onClick={() => setOpen(v => !v)}>{label}</Btn>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{position:'fixed', inset:0, zIndex:29}}/>
+          <div style={{position:'absolute', top:32, right:0, minWidth:170, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 8px 24px -8px rgba(6,14,31,.2)', zIndex:30, padding:4}}>
+            {(['all','urgent','high','med','low'] as const).map(v => (
+              <button key={v} onClick={() => { onChange(v); setOpen(false); }}
+                style={{display:'block', width:'100%', textAlign:'left', padding:'7px 10px', border:0, borderRadius:6, background: value === v ? 'var(--paper-2)' : 'transparent', cursor:'pointer', fontSize:13, color:'var(--ink)'}}>
+                {v === 'all' ? 'All priorities' : PRIO_META[v].label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+export const ListView = () => {
+  const projects = useAppState(s => s.projects);
+  return (
   <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
     <div style={{marginBottom:14}}>
       <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>All projects</div>
@@ -76,8 +166,8 @@ export const ListView = () => (
       <div style={{display:'grid', gridTemplateColumns:'28px 80px 1.5fr 110px 90px 70px 140px 100px', padding:'10px 14px', fontSize:11, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'.04em', fontWeight:600, borderBottom:'1px solid var(--line)', gap:12, alignItems:'center'}}>
         <span/><span>Code</span><span>Project</span><span>Status</span><span>Owner</span><span>Q</span><span>Team</span><span style={{textAlign:'right'}}>Progress</span>
       </div>
-      {PROJECTS.map((p, i) => (
-        <div key={p.id} style={{display:'grid', gridTemplateColumns:'28px 80px 1.5fr 110px 90px 70px 140px 100px', padding:'12px 14px', borderBottom: i < PROJECTS.length - 1 ? '1px solid var(--line-2)' : '0', gap:12, alignItems:'center', fontSize:13}}>
+      {projects.map((p, i) => (
+        <div key={p.id} style={{display:'grid', gridTemplateColumns:'28px 80px 1.5fr 110px 90px 70px 140px 100px', padding:'12px 14px', borderBottom: i < projects.length - 1 ? '1px solid var(--line-2)' : '0', gap:12, alignItems:'center', fontSize:13}}>
           <HealthOrb health={p.health} progress={p.progress}/>
           <span style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-3)'}}>{p.code}</span>
           <span style={{fontWeight:500}}>{p.name}</span>
@@ -93,9 +183,13 @@ export const ListView = () => (
       ))}
     </Card>
   </div>
-);
+  );
+};
 
-export const TableView = () => (
+export const TableView = () => {
+  const tasks = useAppState(s => s.tasks);
+  const projects = useAppState(s => s.projects);
+  return (
   <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
     <div style={{marginBottom:14}}>
       <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:26, letterSpacing:'-0.01em', margin:0}}>Tasks · spreadsheet</h1>
@@ -111,8 +205,9 @@ export const TableView = () => (
             </tr>
           </thead>
           <tbody>
-            {TASKS.map(t => {
-              const proj = PROJECTS.find(p => p.id === t.proj)!;
+            {tasks.map(t => {
+              const proj = projects.find(p => p.id === t.proj);
+              if (!proj) return null;
               const st = TASK_STATUS_META[t.status];
               return (
                 <tr key={t.id} style={{borderBottom:'1px solid var(--line-2)'}}>
@@ -134,39 +229,53 @@ export const TableView = () => (
       </div>
     </Card>
   </div>
-);
+  );
+};
 
 export const CalendarView = () => {
-  // Apr 2026. Apr 1 is a Wednesday.
-  const first = 3; // Wed
-  const days = 30;
+  const offset = useAppState(s => s.calendarMonthOffset);
+  const allTasks = useAppState(s => s.tasks);
+
+  // Base month is April 2026 (index 3, year 2026).
+  const baseYear = 2026;
+  const baseMonth = 3; // 0-based: April
+  const shifted = new Date(baseYear, baseMonth + offset, 1);
+  const year = shifted.getFullYear();
+  const month = shifted.getMonth();
+  const monthLabel = shifted.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const first = new Date(year, month, 1).getDay(); // 0 = Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
   const grid = Array.from({ length: 42 }, (_, i) => {
     const day = i - first + 1;
-    if (day < 1 || day > days) return null;
+    if (day < 1 || day > daysInMonth) return null;
     return day;
   });
-  const events: Record<number, { l: string; c: string }[]> = {
-    17: [{l:'Cutover runbook', c:'var(--accent)'},{l:'Exec status', c:'#7a52c0'}],
-    18: [{l:'T-306 due', c:'var(--risk)'},{l:'Review MAPE', c:'var(--warn)'}],
-    19: [{l:'Arc-flash sign-off', c:'var(--accent)'}],
-    20: [{l:'Portal copy review', c:'var(--ink-4)'}],
-    22: [{l:'Inverter commissioning', c:'var(--accent)'}],
-    23: [{l:'Zone 3B door-to-door', c:'var(--accent)'}],
-    24: [{l:'As-built drawings', c:'var(--ink-4)'}],
-    25: [{l:'Cutover runbook draft', c:'var(--warn)'}],
-    28: [{l:'Sprint 16 close', c:'#7a52c0'}, {l:'Sprint 17 open', c:'var(--ok)'}],
-  };
+
+  // Today (2026-04-17) highlight only for April 2026.
+  const todayDay = (year === 2026 && month === 3) ? 17 : -1;
+
+  // Events sourced from task due dates that fall in this month.
+  const events: Record<number, { l: string; c: string }[]> = {};
+  for (const t of allTasks) {
+    const d = new Date(t.due);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const day = d.getDate();
+      const color = t.prio === 'urgent' ? 'var(--risk)' : t.prio === 'high' ? 'var(--warn)' : t.status === 'done' ? 'var(--ok)' : 'var(--accent)';
+      (events[day] ||= []).push({ l: `${t.id} · ${t.title}`, c: color });
+    }
+  }
+
   return (
     <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
       <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between', marginBottom:14}}>
         <div>
-          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>April 2026</div>
+          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>{monthLabel}</div>
           <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:26, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Calendar</h1>
         </div>
         <div style={{display:'flex', gap:8}}>
-          <Btn size="sm" variant="ghost" icon={<Icons.chev size={13} style={{transform:'rotate(180deg)'}}/>}>Prev</Btn>
-          <Btn size="sm" variant="subtle">Month</Btn>
-          <Btn size="sm" variant="ghost" icon={<Icons.chev size={13}/>}>Next</Btn>
+          <Btn size="sm" variant="ghost" icon={<Icons.chev size={13} style={{transform:'rotate(180deg)'}}/>} onClick={() => actions.shiftCalendarMonth(-1)}>Prev</Btn>
+          <Btn size="sm" variant="subtle" onClick={() => actions.resetCalendarMonth()}>Month</Btn>
+          <Btn size="sm" variant="ghost" icon={<Icons.chev size={13}/>} onClick={() => actions.shiftCalendarMonth(1)}>Next</Btn>
         </div>
       </div>
       <Card pad={0}>
@@ -177,16 +286,19 @@ export const CalendarView = () => {
         </div>
         <div style={{display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gridAutoRows:'110px'}}>
           {grid.map((d, i) => (
-            <div key={i} style={{borderRight: i % 7 < 6 ? '1px solid var(--line-2)' : '0', borderBottom:'1px solid var(--line-2)', padding:8, background: d === 17 ? 'color-mix(in oklab, var(--accent) 6%, white)' : 'transparent'}}>
+            <div key={i} style={{borderRight: i % 7 < 6 ? '1px solid var(--line-2)' : '0', borderBottom:'1px solid var(--line-2)', padding:8, background: d === todayDay ? 'color-mix(in oklab, var(--accent) 6%, white)' : 'transparent'}}>
               {d && (
                 <>
                   <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4}}>
-                    <span style={{fontSize:11, fontFamily:'var(--font-mono)', color: d === 17 ? 'var(--accent-ink)' : 'var(--ink-3)', fontWeight: d === 17 ? 700 : 400}}>{d}</span>
-                    {d === 17 && <Pill small c="var(--accent-ink)" bg="var(--accent-wash)">today</Pill>}
+                    <span style={{fontSize:11, fontFamily:'var(--font-mono)', color: d === todayDay ? 'var(--accent-ink)' : 'var(--ink-3)', fontWeight: d === todayDay ? 700 : 400}}>{d}</span>
+                    {d === todayDay && <Pill small c="var(--accent-ink)" bg="var(--accent-wash)">today</Pill>}
                   </div>
-                  {(events[d] || []).map((e, ei) => (
+                  {(events[d] || []).slice(0, 3).map((e, ei) => (
                     <div key={ei} style={{fontSize:11, color:'var(--ink-2)', borderLeft:`2px solid ${e.c}`, paddingLeft:6, marginBottom:3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'}}>{e.l}</div>
                   ))}
+                  {(events[d] || []).length > 3 && (
+                    <div style={{fontSize:10, color:'var(--ink-4)', paddingLeft:6}}>+{(events[d] || []).length - 3} more</div>
+                  )}
                 </>
               )}
             </div>
@@ -265,82 +377,110 @@ export const CapacityView = () => (
   </div>
 );
 
-export const ExecView = () => (
-  <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
-    <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:14}}>
-      <div>
-        <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>Week 16 · for leadership</div>
-        <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:28, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Exec status</h1>
-      </div>
-      <div style={{display:'flex',gap:8}}>
-        <Btn size="sm" variant="outline" icon={<Icons.doc size={13}/>}>Export PDF</Btn>
-        <Btn size="sm" variant="accent" icon={<Icons.zap size={13}/>}>Draft with Harvey IA</Btn>
-      </div>
-    </div>
+export const ExecView = () => {
+  const projects = useAppState(s => s.projects);
+  const draft = useAppState(s => s.execDraft);
+  const narrative = useAppState(s => s.execNarrative);
+  const active = projects.filter(p => p.status !== 'shipped' && p.status !== 'planning').length || projects.length;
+  const avg = projects.length ? Math.round(projects.reduce((a, p) => a + p.progress, 0) / projects.length) : 0;
+  const atRisk = projects.filter(p => p.health === 'at-risk').length;
+  const blocked = projects.filter(p => p.health === 'blocked').length;
 
-    <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12, marginBottom:18}}>
-      {[
-        { v:'6',   l:'Active projects', c:'var(--ink)' },
-        { v:'62%', l:'Avg progress',    c:'var(--accent)' },
-        { v:'2',   l:'At risk',         c:'var(--warn)' },
-        { v:'1',   l:'Blocked',         c:'var(--risk)' },
-      ].map((k, i) => (
-        <Card key={i} pad={16}>
-          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600}}>{k.l}</div>
-          <div style={{fontSize:34, fontFamily:'var(--font-serif)', fontWeight:500, letterSpacing:'-0.02em', color:k.c, marginTop:4}}>{k.v}</div>
-        </Card>
-      ))}
-    </div>
-
-    <Card title="Narrative" pad={20} style={{marginBottom:18}}>
-      <div style={{fontSize:14, lineHeight:1.65, textWrap:'pretty', color:'var(--ink-2)', maxWidth:820} as any}>
-        <p style={{margin:'0 0 12px'}}>
-          The Grid team held the SE-07 cutover window this week despite the ABB relay shipment slipping three weeks. Andrea has drafted runbook v3 and we're on track to hit the Q2 milestone if procurement resolves the delay by Apr 24. <b>This is the single biggest schedule risk in the portfolio.</b>
-        </p>
-        <p style={{margin:'0 0 12px'}}>
-          Harvey IA v2 is at risk — the MAPE regression on cohort B is under review by Valentina and Lucía. We still expect Q2 shadow deploy, but confidence is medium.
-        </p>
-        <p style={{margin:0}}>
-          Residential rollout in Maracaibo is 78% complete and ahead of plan; we'll likely beat the 4,000-meter target by two weeks.
-        </p>
+  return (
+    <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
+      <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:14}}>
+        <div>
+          <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.06em', textTransform:'uppercase', fontWeight:600}}>Week 16 · for leadership</div>
+          <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:28, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Exec status</h1>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <Btn size="sm" variant="outline" icon={<Icons.doc size={13}/>} onClick={() => window.print()}>Export PDF</Btn>
+          <Btn size="sm" variant="accent" icon={<Icons.zap size={13}/>}
+            onClick={() => { if (draft !== 'drafting') actions.draftExecNarrative(); }}>
+            {draft === 'drafting' ? 'Drafting…' : draft === 'drafted' ? 'Re-draft with Harvey IA' : 'Draft with Harvey IA'}
+          </Btn>
+        </div>
       </div>
-    </Card>
 
-    <Card pad={0}>
-      <div style={{padding:'12px 14px', borderBottom:'1px solid var(--line)', fontSize:12, fontWeight:600, color:'var(--ink-2)', textTransform:'uppercase', letterSpacing:'.04em'}}>Per-project health</div>
-      {PROJECTS.map((p, i) => (
-        <div key={p.id} style={{display:'grid', gridTemplateColumns:'220px 1fr 120px 100px', padding:'12px 14px', borderTop: i ? '1px solid var(--line-2)' : '0', gap:14, alignItems:'center'}}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <HealthOrb health={p.health} progress={p.progress}/>
-            <div>
-              <div style={{fontSize:13, fontWeight:500}}>{p.name.split('·')[0]}</div>
-              <div style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-3)'}}>{p.code} · {p.q}</div>
+      <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:12, marginBottom:18}}>
+        {[
+          { v:String(active),       l:'Active projects', c:'var(--ink)' },
+          { v:`${avg}%`,            l:'Avg progress',    c:'var(--accent)' },
+          { v:String(atRisk),       l:'At risk',         c:'var(--warn)' },
+          { v:String(blocked),      l:'Blocked',         c:'var(--risk)' },
+        ].map((k, i) => (
+          <Card key={i} pad={16}>
+            <div style={{fontSize:11, color:'var(--ink-3)', letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600}}>{k.l}</div>
+            <div style={{fontSize:34, fontFamily:'var(--font-serif)', fontWeight:500, letterSpacing:'-0.02em', color:k.c, marginTop:4}}>{k.v}</div>
+          </Card>
+        ))}
+      </div>
+
+      <Card title="Narrative" pad={20} style={{marginBottom:18}}>
+        <div style={{fontSize:14, lineHeight:1.65, textWrap:'pretty', color:'var(--ink-2)', maxWidth:820} as any}>
+          {draft === 'drafting' && (
+            <p style={{margin:'0 0 12px', color:'var(--ink-3)', fontStyle:'italic'}}>Harvey IA is drafting an updated narrative…</p>
+          )}
+          {narrative ? (
+            <p style={{margin:0}}>{narrative}</p>
+          ) : (
+            <>
+              <p style={{margin:'0 0 12px'}}>
+                The Grid team held the SE-07 cutover window this week despite the ABB relay shipment slipping three weeks. Andrea has drafted runbook v3 and we're on track to hit the Q2 milestone if procurement resolves the delay by Apr 24. <b>This is the single biggest schedule risk in the portfolio.</b>
+              </p>
+              <p style={{margin:'0 0 12px'}}>
+                Harvey IA v2 is at risk — the MAPE regression on cohort B is under review by Valentina and Lucía. We still expect Q2 shadow deploy, but confidence is medium.
+              </p>
+              <p style={{margin:0}}>
+                Residential rollout in Maracaibo is 78% complete and ahead of plan; we'll likely beat the 4,000-meter target by two weeks.
+              </p>
+            </>
+          )}
+        </div>
+      </Card>
+
+      <Card pad={0}>
+        <div style={{padding:'12px 14px', borderBottom:'1px solid var(--line)', fontSize:12, fontWeight:600, color:'var(--ink-2)', textTransform:'uppercase', letterSpacing:'.04em'}}>Per-project health</div>
+        {projects.map((p, i) => (
+          <div key={p.id} style={{display:'grid', gridTemplateColumns:'220px 1fr 120px 100px', padding:'12px 14px', borderTop: i ? '1px solid var(--line-2)' : '0', gap:14, alignItems:'center'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <HealthOrb health={p.health} progress={p.progress}/>
+              <div>
+                <div style={{fontSize:13, fontWeight:500}}>{p.name.split('·')[0]}</div>
+                <div style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-3)'}}>{p.code} · {p.q}</div>
+              </div>
+            </div>
+            <div style={{fontSize:12.5, color:'var(--ink-2)', textWrap:'pretty'} as any}>
+              {p.blockers ? p.blockers[0] : p.summary}
+            </div>
+            <StatusPill s={p.health}/>
+            <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}}>
+              <div style={{width:60}}><ProgressBar v={p.progress} c={p.health === 'at-risk' ? 'var(--warn)' : p.health === 'blocked' ? 'var(--risk)' : 'var(--accent)'}/></div>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:12, width:32, textAlign:'right'}}>{p.progress}%</span>
             </div>
           </div>
-          <div style={{fontSize:12.5, color:'var(--ink-2)', textWrap:'pretty'} as any}>
-            {p.blockers ? p.blockers[0] : p.summary}
-          </div>
-          <StatusPill s={p.health}/>
-          <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}}>
-            <div style={{width:60}}><ProgressBar v={p.progress} c={p.health === 'at-risk' ? 'var(--warn)' : p.health === 'blocked' ? 'var(--risk)' : 'var(--accent)'}/></div>
-            <span style={{fontFamily:'var(--font-mono)', fontSize:12, width:32, textAlign:'right'}}>{p.progress}%</span>
-          </div>
-        </div>
-      ))}
-    </Card>
-  </div>
-);
+        ))}
+      </Card>
+    </div>
+  );
+};
 
-export const InboxView = () => (
+export const InboxView = () => {
+  const notifs = useAppState(s => s.notifications);
+  return (
   <div style={{padding:'20px 28px', maxWidth:860, margin:'0 auto'}}>
-    <div style={{marginBottom:14}}>
+    <div style={{display:'flex', alignItems:'flex-end', justifyContent:'space-between', marginBottom:14}}>
       <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:26, letterSpacing:'-0.01em', margin:0}}>Inbox</h1>
+      <Btn size="sm" variant="outline" onClick={() => actions.markAllNotificationsRead()}>Mark all read</Btn>
     </div>
     <Card pad={0}>
-      {[...NOTIFICATIONS, ...NOTIFICATIONS].map((n, i) => {
+      {notifs.length === 0 && (
+        <div style={{padding:'24px', fontSize:13, color:'var(--ink-4)', textAlign:'center'}}>No notifications.</div>
+      )}
+      {notifs.map((n, i) => {
         const p = n.who === 'sys' ? null : PEOPLE.find(x => x.id === n.who);
         return (
-          <div key={i} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'14px 16px',borderBottom: i < 9 ? '1px solid var(--line-2)' : '0'}}>
+          <div key={n.id} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'14px 16px',borderBottom: i < notifs.length - 1 ? '1px solid var(--line-2)' : '0', background: n.read ? 'transparent' : 'color-mix(in oklab, var(--accent) 4%, white)'}}>
             {p ? <Avatar id={n.who} size={28}/> : (
               <span style={{width:28,height:28,borderRadius:28,background:'var(--navy-100)',display:'inline-flex',alignItems:'center',justifyContent:'center',color:'var(--navy-600)',flex:'none'}}>
                 <Icons.zap size={13}/>
@@ -354,10 +494,11 @@ export const InboxView = () => (
               </div>
               <div style={{fontSize:11, color:'var(--ink-4)', marginTop:3}}>{n.t} ago</div>
             </div>
-            {i < 3 && <Dot c="var(--accent)"/>}
+            {!n.read && <Dot c="var(--accent)"/>}
           </div>
         );
       })}
     </Card>
   </div>
-);
+  );
+};

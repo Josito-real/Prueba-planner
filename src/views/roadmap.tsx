@@ -1,21 +1,35 @@
 // Roadmap — quarters with swimlanes + novel capacity heat columns + cross-project dep threads.
-import { Fragment } from 'react';
-import { DEPS, PROJECTS, QUARTERS } from '../data';
+import { Fragment, useState } from 'react';
+import { DEPS, PEOPLE, QUARTERS } from '../data';
 import { Icons } from '../icons';
+import { actions, useAppState, type Scale } from '../store';
 import { Btn, Card, DepThread, HealthOrb } from '../ui';
 
 export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) => {
-  const startDate = new Date('2026-01-01').getTime();
-  const endDate   = new Date('2026-12-31').getTime();
+  const allProjects = useAppState(s => s.projects);
+  const scale = useAppState(s => s.roadmapScale);
+  const hiddenDepts = useAppState(s => s.roadmapDepts);
+  const hiddenOwners = useAppState(s => s.roadmapOwners);
+
+  const projects = allProjects.filter(p => !hiddenDepts.includes(p.dept) && !hiddenOwners.includes(p.owner));
+
+  // Scale controls visible range: year = 2026 full, quarter = Q2 only (Apr–Jun), month = April only
+  const range = scaleRange(scale);
+  const startDate = new Date(range.start).getTime();
+  const endDate   = new Date(range.end).getTime();
   const span = endDate - startDate;
   const laneH = 44;
   const headerH = 48;
   const width = 1060;
-  const pctX = (iso: string) => ((new Date(iso).getTime() - startDate) / span) * width;
+  const pctX = (iso: string) => {
+    const t = new Date(iso).getTime();
+    const clamped = Math.max(startDate, Math.min(endDate, t));
+    return ((clamped - startDate) / span) * width;
+  };
 
-  const boxes = PROJECTS.map((p, i) => {
+  const boxes = projects.map((p, i) => {
     const x1 = pctX(p.start), x2 = pctX(p.end);
-    return { p, x: x1, w: x2 - x1, y: headerH + i * laneH + 8, h: laneH - 16 };
+    return { p, x: x1, w: Math.max(4, x2 - x1), y: headerH + i * laneH + 8, h: laneH - 16 };
   });
 
   // lookup for deps
@@ -29,12 +43,26 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
           <h1 style={{fontFamily:'var(--font-serif)', fontWeight:500, fontSize:28, letterSpacing:'-0.01em', margin:'4px 0 0'}}>Roadmap</h1>
         </div>
         <div style={{display:'flex', gap:8}}>
-          <Btn size="sm" variant="subtle">Year</Btn>
-          <Btn size="sm" variant="ghost">Quarter</Btn>
-          <Btn size="sm" variant="ghost">Month</Btn>
+          {(['year','quarter','month'] as Scale[]).map(s => (
+            <Btn key={s} size="sm" variant={scale === s ? 'subtle' : 'ghost'} onClick={() => actions.setRoadmapScale(s)}>
+              {s[0].toUpperCase() + s.slice(1)}
+            </Btn>
+          ))}
           <span style={{width:12}}/>
-          <Btn size="sm" variant="outline" icon={<Icons.filter size={13}/>}>Dept</Btn>
-          <Btn size="sm" variant="outline" icon={<Icons.team size={13}/>}>Owner</Btn>
+          <FilterPopover
+            label="Dept"
+            icon={<Icons.filter size={13}/>}
+            options={['Grid','Solar','Residential','Harvey IA','Ops'].map(d => ({ value: d, label: d }))}
+            hidden={hiddenDepts}
+            toggle={actions.toggleRoadmapDept}
+          />
+          <FilterPopover
+            label="Owner"
+            icon={<Icons.team size={13}/>}
+            options={PEOPLE.map(p => ({ value: p.id, label: p.name }))}
+            hidden={hiddenOwners}
+            toggle={actions.toggleRoadmapOwner}
+          />
         </div>
       </div>
 
@@ -42,9 +70,9 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
         <div style={{display:'flex'}}>
           <div style={{width:200, borderRight:'1px solid var(--line)', flex:'none'}}>
             <div style={{height:headerH, borderBottom:'1px solid var(--line)', padding:'0 14px', display:'flex', alignItems:'center', fontSize:11, color:'var(--ink-3)', letterSpacing:'.04em', textTransform:'uppercase', fontWeight:600}}>Project</div>
-            {PROJECTS.map((p, i) => (
+            {projects.map((p, i) => (
               <div key={p.id} onClick={() => openProject(p.id)} style={{
-                height:laneH, borderBottom: i < PROJECTS.length - 1 ? '1px solid var(--line-2)' : '0',
+                height:laneH, borderBottom: i < projects.length - 1 ? '1px solid var(--line-2)' : '0',
                 padding:'0 14px', display:'flex', alignItems:'center', gap:10, cursor:'pointer',
               }}>
                 <HealthOrb health={p.health} progress={p.progress} size={12}/>
@@ -55,9 +83,9 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
           </div>
           <div style={{flex:1, overflow:'auto'}}>
             <div style={{position:'relative', width:width, minWidth:width}}>
-              <svg width={width} height={headerH + PROJECTS.length * laneH}>
-                {/* quarter headers */}
-                {QUARTERS.map((q, i) => {
+              <svg width={width} height={headerH + projects.length * laneH}>
+                {/* scale headers */}
+                {scale === 'year' && QUARTERS.map((q, i) => {
                   const qx = (width / 4) * i;
                   return (
                     <g key={q.id}>
@@ -66,20 +94,36 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
                       {q.months.map((m, mi) => (
                         <text key={mi} x={qx + (width/12) * mi + 8} y={38} fontSize="10" fontFamily="var(--font-mono)" fill="var(--ink-4)">{m}</text>
                       ))}
-                      {i > 0 && <line x1={qx} x2={qx} y1={0} y2={headerH + PROJECTS.length * laneH} stroke="var(--line)"/>}
+                      {i > 0 && <line x1={qx} x2={qx} y1={0} y2={headerH + projects.length * laneH} stroke="var(--line)"/>}
                     </g>
                   );
                 })}
-                {/* month grid */}
-                {Array.from({ length: 11 }, (_, i) => i + 1).map(i => (
-                  <line key={i} x1={(width/12) * i} x2={(width/12) * i} y1={headerH} y2={headerH + PROJECTS.length * laneH} stroke="var(--line-2)"/>
-                ))}
+                {scale === 'quarter' && range.months.map((m, i) => {
+                  const mx = (width / range.months.length) * i;
+                  return (
+                    <g key={m}>
+                      <rect x={mx} y={0} width={width/range.months.length} height={headerH} fill={i % 2 ? 'transparent' : 'var(--paper-2)'}/>
+                      <text x={mx+12} y={22} fontSize="12" fill="var(--ink-3)" fontWeight="600" style={{letterSpacing:'.04em'}}>{m.toUpperCase()}</text>
+                      {i > 0 && <line x1={mx} x2={mx} y1={0} y2={headerH + projects.length * laneH} stroke="var(--line)"/>}
+                    </g>
+                  );
+                })}
+                {scale === 'month' && range.weeks.map((w, i) => {
+                  const wx = (width / range.weeks.length) * i;
+                  return (
+                    <g key={w}>
+                      <rect x={wx} y={0} width={width/range.weeks.length} height={headerH} fill={i % 2 ? 'transparent' : 'var(--paper-2)'}/>
+                      <text x={wx+8} y={22} fontSize="11" fontFamily="var(--font-mono)" fill="var(--ink-3)">{w}</text>
+                      {i > 0 && <line x1={wx} x2={wx} y1={0} y2={headerH + projects.length * laneH} stroke="var(--line)"/>}
+                    </g>
+                  );
+                })}
                 {/* lane separators */}
-                {PROJECTS.map((_, i) => (
+                {projects.map((_, i) => (
                   <line key={i} x1={0} x2={width} y1={headerH + (i+1) * laneH} y2={headerH + (i+1) * laneH} stroke="var(--line-2)"/>
                 ))}
                 {/* now line */}
-                <line x1={pctX('2026-04-17')} x2={pctX('2026-04-17')} y1={headerH-8} y2={headerH + PROJECTS.length * laneH} stroke="var(--accent)" strokeWidth="1.2" strokeDasharray="4 3"/>
+                <line x1={pctX('2026-04-17')} x2={pctX('2026-04-17')} y1={headerH-8} y2={headerH + projects.length * laneH} stroke="var(--accent)" strokeWidth="1.2" strokeDasharray="4 3"/>
                 <circle cx={pctX('2026-04-17')} cy={headerH-8} r="3" fill="var(--accent)"/>
 
                 {/* bars */}
@@ -125,6 +169,55 @@ export const Roadmap = ({ openProject }: { openProject: (id: string) => void }) 
         <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'var(--accent)'}}/> feeds</span>
         <span style={{display:'flex', alignItems:'center', gap:6}}><span style={{width:16,height:1.5,background:'#7a52c0'}}/> enables</span>
       </div>
+    </div>
+  );
+};
+
+function scaleRange(scale: Scale): { start: string; end: string; months: string[]; weeks: string[] } {
+  if (scale === 'quarter') {
+    return { start:'2026-04-01', end:'2026-06-30', months:['Apr','May','Jun'], weeks:[] };
+  }
+  if (scale === 'month') {
+    return { start:'2026-04-01', end:'2026-04-30', months:['Apr'], weeks:['Apr 1','Apr 8','Apr 15','Apr 22','Apr 29'] };
+  }
+  return { start:'2026-01-01', end:'2026-12-31', months:[], weeks:[] };
+}
+
+const FilterPopover = ({ label, icon, options, hidden, toggle }: {
+  label: string; icon?: React.ReactNode;
+  options: { value: string; label: string }[];
+  hidden: string[];
+  toggle: (v: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const activeCount = options.length - hidden.length;
+  const allActive = hidden.length === 0;
+  return (
+    <div style={{position:'relative'}}>
+      <Btn size="sm" variant={allActive ? 'outline' : 'accent'} icon={icon} onClick={() => setOpen(v => !v)}>
+        {label}{allActive ? '' : ` · ${activeCount}/${options.length}`}
+      </Btn>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{position:'fixed', inset:0, zIndex:29}}/>
+          <div style={{position:'absolute', top:34, right:0, minWidth:200, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 8px 24px -8px rgba(6,14,31,.2)', zIndex:30, padding:4, maxHeight:320, overflowY:'auto'}}>
+            {options.map(o => {
+              const visible = !hidden.includes(o.value);
+              return (
+                <button key={o.value} onClick={() => toggle(o.value)}
+                  style={{display:'flex', alignItems:'center', gap:10, width:'100%', padding:'7px 10px', border:0, borderRadius:6, background:'transparent', cursor:'pointer', fontSize:13, color:'var(--ink)', textAlign:'left'}}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--paper-2)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <span style={{width:14, height:14, border:'1.5px solid var(--line)', borderRadius:4, display:'inline-flex', alignItems:'center', justifyContent:'center', background: visible ? 'var(--accent)' : 'transparent', borderColor: visible ? 'var(--accent)' : 'var(--line)'}}>
+                    {visible && <Icons.check size={10}/>}
+                  </span>
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 };

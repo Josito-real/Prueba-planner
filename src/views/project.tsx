@@ -1,15 +1,31 @@
 // Project detail page + related components.
 import { useState } from 'react';
-import { DEPS, PEOPLE, PRIO_META, PROJECTS, TASKS, TASK_STATUS_META, type Dep, type Project, type Task } from '../data';
+import { DEPS, PEOPLE, PRIO_META, PROJECTS, TASK_STATUS_META, type Dep, type Priority, type Project, type Task } from '../data';
 import { Icons } from '../icons';
-import { Avatar, AvatarStack, Btn, Card, Dot, HealthOrb, Pill, ProgressBar, Sparkbars, StatusPill } from '../ui';
+import { NewTaskModal } from '../shell';
+import { actions, useAppState, type GroupBy } from '../store';
+import { Avatar, AvatarStack, Btn, Card, Dot, HealthOrb, Pill, ProgressBar, Select, Sparkbars, StatusPill } from '../ui';
 
 export const ProjectView = ({ id, setView: _setView }: { id: string; setView: (v: string) => void }) => {
-  const p = PROJECTS.find(x => x.id === id);
+  const projects = useAppState(s => s.projects);
+  const allTasks = useAppState(s => s.tasks);
+  const p = projects.find(x => x.id === id);
   const [tab, setTab] = useState('overview');
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
   if (!p) return null;
-  const tasks = TASKS.filter(t => t.proj === id);
+  const tasks = allTasks.filter(t => t.proj === id);
   const deps = DEPS.filter(d => d.from === id || d.to === id);
+
+  const copyLink = async () => {
+    const url = `${window.location.origin}${window.location.pathname}#${p.code}`;
+    try { await navigator.clipboard.writeText(url); } catch {
+      const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 1600);
+  };
 
   return (
     <div style={{padding:'20px 28px', maxWidth:1280, margin:'0 auto'}}>
@@ -47,11 +63,13 @@ export const ProjectView = ({ id, setView: _setView }: { id: string; setView: (v
           <AvatarStack ids={p.team} size={24}/>
           <span style={{fontSize:12, color:'var(--ink-3)'}}>Owner · {PEOPLE.find(x => x.id === p.owner)?.name}</span>
           <span style={{flex:1}}/>
-          <Btn variant="outline" size="sm" icon={<Icons.link size={13}/>}>Copy link</Btn>
-          <Btn variant="outline" size="sm" icon={<Icons.doc size={13}/>}>Spec doc</Btn>
-          <Btn variant="accent" size="sm" icon={<Icons.plus size={13}/>}>New task</Btn>
+          <Btn variant="outline" size="sm" icon={<Icons.link size={13}/>} onClick={copyLink}>{linkCopied ? 'Copied!' : 'Copy link'}</Btn>
+          <Btn variant="outline" size="sm" icon={<Icons.doc size={13}/>} onClick={() => setTab('docs')}>Spec doc</Btn>
+          <Btn variant="accent" size="sm" icon={<Icons.plus size={13}/>} onClick={() => setNewTaskOpen(true)}>New task</Btn>
         </div>
       </div>
+
+      <NewTaskModal open={newTaskOpen} onClose={() => setNewTaskOpen(false)} defaultProject={id} onCreated={() => setTab('tasks')}/>
 
       {/* Tabs */}
       <div style={{display:'flex', gap:2, borderBottom:'1px solid var(--line)', marginBottom:18}}>
@@ -66,8 +84,8 @@ export const ProjectView = ({ id, setView: _setView }: { id: string; setView: (v
         ))}
       </div>
 
-      {tab === 'overview' && <ProjectOverview p={p} tasks={tasks} deps={deps}/>}
-      {tab === 'tasks' && <TaskList tasks={tasks}/>}
+      {tab === 'overview' && <ProjectOverview p={p} tasks={tasks} deps={deps} setTab={setTab}/>}
+      {tab === 'tasks' && <TaskList tasks={tasks} projectId={p.id}/>}
       {tab === 'timeline' && <ProjectTimeline p={p}/>}
       {tab === 'docs' && <ProjectDocs/>}
       {tab === 'activity' && <ProjectActivity/>}
@@ -75,7 +93,7 @@ export const ProjectView = ({ id, setView: _setView }: { id: string; setView: (v
   );
 };
 
-const ProjectOverview = ({ p, tasks, deps }: { p: Project; tasks: Task[]; deps: Dep[] }) => (
+const ProjectOverview = ({ p, tasks, deps, setTab }: { p: Project; tasks: Task[]; deps: Dep[]; setTab: (t: string) => void }) => (
   <div style={{display:'grid', gridTemplateColumns:'1.5fr 1fr', gap:18}}>
     <div style={{display:'flex',flexDirection:'column',gap:18}}>
       <Card title="Milestones & KRs">
@@ -87,7 +105,7 @@ const ProjectOverview = ({ p, tasks, deps }: { p: Project; tasks: Task[]; deps: 
           </div>
         ))}
       </Card>
-      <Card title={`Open tasks · ${tasks.filter(t => t.status !== 'done').length}`} right={<Btn size="sm" variant="ghost">All tasks</Btn>}>
+      <Card title={`Open tasks · ${tasks.filter(t => t.status !== 'done').length}`} right={<Btn size="sm" variant="ghost" onClick={() => setTab('tasks')}>All tasks</Btn>}>
         <TaskMini tasks={tasks.slice(0, 6)}/>
       </Card>
       {p.blockers && (
@@ -172,40 +190,110 @@ const TaskMini = ({ tasks }: { tasks: Task[] }) => (
   </div>
 );
 
-const TaskList = ({ tasks }: { tasks: Task[] }) => (
-  <Card pad={0}>
-    <div style={{padding:'10px 14px', borderBottom:'1px solid var(--line)', display:'flex', gap:8, alignItems:'center'}}>
-      <Btn size="sm" variant="subtle" icon={<Icons.filter size={13}/>}>Filter</Btn>
-      <Btn size="sm" variant="ghost">Group: Status</Btn>
-      <span style={{flex:1}}/>
-      <Btn size="sm" variant="ghost" icon={<Icons.plus size={13}/>}>New</Btn>
-    </div>
-    {(['in-progress','review','todo','blocked','done'] as const).map(st => {
-      const group = tasks.filter(t => t.status === st);
-      if (!group.length) return null;
-      const meta = TASK_STATUS_META[st];
-      return (
-        <div key={st}>
+const TaskList = ({ tasks, projectId }: { tasks: Task[]; projectId: string }) => {
+  const filterPrio = useAppState(s => s.projectFilter.prio);
+  const groupBy = useAppState(s => s.projectGroupBy);
+  const [newOpen, setNewOpen] = useState(false);
+
+  const filtered = filterPrio === 'all' ? tasks : tasks.filter(t => t.prio === filterPrio);
+
+  const groups = groupTasks(filtered, groupBy);
+  const nextGroup: Record<GroupBy, GroupBy> = {
+    status: 'priority',
+    priority: 'owner',
+    owner: 'status',
+    project: 'status',
+  };
+  const groupLabel = groupBy === 'status' ? 'Status' : groupBy === 'priority' ? 'Priority' : 'Owner';
+
+  return (
+    <Card pad={0}>
+      <div style={{padding:'10px 14px', borderBottom:'1px solid var(--line)', display:'flex', gap:8, alignItems:'center'}}>
+        <FilterDropdown value={filterPrio} onChange={actions.setProjectFilter}/>
+        <Btn size="sm" variant="ghost" onClick={() => actions.setProjectGroupBy(nextGroup[groupBy])}>Group: {groupLabel}</Btn>
+        <span style={{flex:1}}/>
+        <Btn size="sm" variant="ghost" icon={<Icons.plus size={13}/>} onClick={() => setNewOpen(true)}>New</Btn>
+      </div>
+      {groups.map(g => (
+        <div key={g.key}>
           <div style={{padding:'10px 14px', background:'var(--paper-2)', fontSize:11, fontWeight:600, color:'var(--ink-2)', textTransform:'uppercase', letterSpacing:'.04em', display:'flex', alignItems:'center', gap:8}}>
-            <Dot c={meta.c}/> {meta.label} · {group.length}
+            <Dot c={g.color}/> {g.label} · {g.tasks.length}
           </div>
-          {group.map(t => (
-            <div key={t.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderBottom:'1px solid var(--line-2)'}}>
-              <span style={{width:14,height:14,border:`1.5px solid ${meta.c}`, borderRadius:4, flex:'none'}}/>
-              <span style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-4)', width:52}}>{t.id}</span>
-              <span style={{flex:1, fontSize:13}}>{t.title}</span>
-              <Pill small c={PRIO_META[t.prio].c}>{PRIO_META[t.prio].label}</Pill>
-              {t.tags.slice(0, 2).map(tag => <Pill key={tag} small>{tag}</Pill>)}
-              <Avatar id={t.owner} size={22}/>
-              <span style={{fontSize:11, color:'var(--ink-3)', fontFamily:'var(--font-mono)', width:56, textAlign:'right'}}>{t.due.slice(5)}</span>
-              <span style={{fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)', width:28, textAlign:'right'}}>{t.est}h</span>
-            </div>
-          ))}
+          {g.tasks.map(t => {
+            const rowColor = TASK_STATUS_META[t.status].c;
+            return (
+              <div key={t.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderBottom:'1px solid var(--line-2)'}}>
+                <button
+                  onClick={() => actions.cycleTaskStatus(t.id)}
+                  title="Cycle status"
+                  style={{width:14,height:14,border:`1.5px solid ${rowColor}`, borderRadius:4, flex:'none', background:'transparent', cursor:'pointer', padding:0, display:'inline-flex', alignItems:'center', justifyContent:'center'}}>
+                  {t.status === 'done' && <Icons.check size={10}/>}
+                </button>
+                <span style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--ink-4)', width:52}}>{t.id}</span>
+                <span style={{flex:1, fontSize:13, textDecoration: t.status === 'done' ? 'line-through' : 'none', color: t.status === 'done' ? 'var(--ink-3)' : 'inherit'}}>{t.title}</span>
+                <Pill small c={PRIO_META[t.prio].c}>{PRIO_META[t.prio].label}</Pill>
+                {t.tags.slice(0, 2).map(tag => <Pill key={tag} small>{tag}</Pill>)}
+                <Avatar id={t.owner} size={22}/>
+                <span style={{fontSize:11, color:'var(--ink-3)', fontFamily:'var(--font-mono)', width:56, textAlign:'right'}}>{t.due ? t.due.slice(5) : '—'}</span>
+                <span style={{fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)', width:28, textAlign:'right'}}>{t.est}h</span>
+              </div>
+            );
+          })}
         </div>
-      );
-    })}
-  </Card>
-);
+      ))}
+      {groups.length === 0 && <div style={{padding:'24px', fontSize:13, color:'var(--ink-4)', textAlign:'center'}}>No tasks match the current filter.</div>}
+      <NewTaskModal open={newOpen} onClose={() => setNewOpen(false)} defaultProject={projectId}/>
+    </Card>
+  );
+};
+
+function groupTasks(tasks: Task[], by: GroupBy): { key: string; label: string; color: string; tasks: Task[] }[] {
+  if (by === 'priority') {
+    const order: Priority[] = ['urgent', 'high', 'med', 'low'];
+    return order.map(prio => ({
+      key: prio, label: PRIO_META[prio].label, color: PRIO_META[prio].c,
+      tasks: tasks.filter(t => t.prio === prio),
+    })).filter(g => g.tasks.length);
+  }
+  if (by === 'owner') {
+    const owners = Array.from(new Set(tasks.map(t => t.owner)));
+    return owners.map(id => {
+      const p = PEOPLE.find(x => x.id === id);
+      return {
+        key: id, label: p ? p.name : id, color: 'var(--ink-3)',
+        tasks: tasks.filter(t => t.owner === id),
+      };
+    }).filter(g => g.tasks.length);
+  }
+  const statuses: (keyof typeof TASK_STATUS_META)[] = ['in-progress', 'review', 'todo', 'blocked', 'done'];
+  return statuses.map(st => {
+    const m = TASK_STATUS_META[st];
+    return { key: st, label: m.label, color: m.c, tasks: tasks.filter(t => t.status === st) };
+  }).filter(g => g.tasks.length);
+}
+
+const FilterDropdown = ({ value, onChange }: { value: Priority | 'all'; onChange: (v: Priority | 'all') => void }) => {
+  const [open, setOpen] = useState(false);
+  const label = value === 'all' ? 'Filter' : `Priority: ${PRIO_META[value].label}`;
+  return (
+    <div style={{position:'relative'}}>
+      <Btn size="sm" variant={value === 'all' ? 'subtle' : 'outline'} icon={<Icons.filter size={13}/>} onClick={() => setOpen(v => !v)}>{label}</Btn>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{position:'fixed', inset:0, zIndex:29}}/>
+          <div style={{position:'absolute', top:32, left:0, minWidth:160, background:'var(--paper)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 8px 24px -8px rgba(6,14,31,.2)', zIndex:30, padding:4}}>
+            {(['all','urgent','high','med','low'] as const).map(v => (
+              <button key={v} onClick={() => { onChange(v); setOpen(false); }}
+                style={{display:'block', width:'100%', textAlign:'left', padding:'7px 10px', border:0, borderRadius:6, background: value === v ? 'var(--paper-2)' : 'transparent', cursor:'pointer', fontSize:13, color:'var(--ink)'}}>
+                {v === 'all' ? 'All priorities' : PRIO_META[v].label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 const ProjectTimeline = ({ p }: { p: Project }) => {
   // Inline mini Gantt of this project

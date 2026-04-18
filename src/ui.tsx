@@ -1,5 +1,5 @@
 // Shared UI primitives: Avatar, Pill, Dot, Chip, HealthOrb, Progress, Thread, etc.
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import { PEOPLE, STATUS_META } from './data';
 
 export const Avatar = ({ id, size = 22, ring = false }: { id: string; size?: number; ring?: boolean }) => {
@@ -163,6 +163,70 @@ export const Sparkbars = ({ values = [], h = 22, c = 'var(--accent)' }: { values
       <span key={i} style={{width:4, height:`${Math.max(8,v)}%`, background: v > 85 ? 'var(--risk)' : v > 70 ? 'var(--warn)' : c, borderRadius:1, opacity:.85}}/>
     ))}
   </span>
+);
+
+export const Modal = ({ open, onClose, title, width = 460, children, footer }: {
+  open: boolean; onClose: () => void; title: ReactNode; width?: number; children: ReactNode; footer?: ReactNode;
+}) => {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(6,14,31,.38)', zIndex:120,
+      display:'flex', justifyContent:'center', alignItems:'flex-start', paddingTop:'12vh',
+      backdropFilter:'blur(2px)',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width, maxWidth:'92vw', background:'var(--paper)', borderRadius:12,
+        border:'1px solid var(--line)', boxShadow:'0 20px 60px -12px rgba(6,14,31,.35)',
+        overflow:'hidden', display:'flex', flexDirection:'column', maxHeight:'80vh',
+      }}>
+        <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 18px', borderBottom:'1px solid var(--line)'}}>
+          <div style={{fontSize:14, fontWeight:600}}>{title}</div>
+          <button onClick={onClose} aria-label="Close" style={{background:'transparent', border:0, cursor:'pointer', color:'var(--ink-3)', fontSize:18, lineHeight:1, padding:4}}>×</button>
+        </div>
+        <div style={{padding:'16px 18px', overflowY:'auto'}}>{children}</div>
+        {footer && <div style={{padding:'12px 18px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', gap:8}}>{footer}</div>}
+      </div>
+    </div>
+  );
+};
+
+export const TextInput = ({ value, onChange, placeholder, autoFocus }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean;
+}) => (
+  <input
+    autoFocus={autoFocus}
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    placeholder={placeholder}
+    style={{
+      width:'100%', padding:'9px 12px', border:'1px solid var(--line)', borderRadius:8,
+      fontSize:13, fontFamily:'var(--font-sans)', background:'var(--paper)', color:'var(--ink)',
+      outline:'none',
+    }}
+    onFocus={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+    onBlur={e => { e.currentTarget.style.borderColor = 'var(--line)'; }}
+  />
+);
+
+export const Select = ({ value, onChange, options }: {
+  value: string; onChange: (v: string) => void; options: { value: string; label: string }[];
+}) => (
+  <select
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    style={{
+      height:32, padding:'0 8px', border:'1px solid var(--line)', borderRadius:8,
+      fontSize:13, background:'var(--paper)', color:'var(--ink)', cursor:'pointer',
+    }}>
+    {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+  </select>
 );
 
 // Dep thread connector — an SVG curve between two boxes
